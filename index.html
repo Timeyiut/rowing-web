@@ -160,25 +160,37 @@
     });
 
     // 3. 藍牙與 CSV 功能
-    document.getElementById('btn-bluetooth').addEventListener('click', async () => {
-        try {
-            const device = await navigator.bluetooth.requestDevice({
-                filters: [{ services: ['heart_rate'] }]
-            });
-            const server = await device.gatt.connect();
-            const service = await server.getPrimaryService('heart_rate');
-            const char = await service.getCharacteristic('heart_rate_measurement');
-            await char.startNotifications();
-            log("藍牙心率帶已連線！");
-            document.getElementById('btn-bluetooth').classList.add('btn-active');
-            char.addEventListener('characteristicvaluechanged', (e) => {
-                currentHR = e.target.value.getUint8(1);
-                document.getElementById('val-hr').innerText = `HR: ${currentHR} bpm`;
-            });
-        } catch (err) {
-            log(`藍牙錯誤: ${err}`);
-        }
-    });
+    // 3. 藍芽連線優化版 (網頁版無法指定 MAC，但可以指定名稱或服務)
+document.getElementById('btn-bluetooth').addEventListener('click', async () => {
+    log("正在搜尋心率設備...");
+    try {
+        const device = await navigator.bluetooth.requestDevice({
+            // 搜尋所有提供心率服務的設備
+            filters: [{ services: ['heart_rate'] }],
+            optionalServices: ['battery_service']
+        });
+
+        log(`找到設備: ${device.name}`);
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService('heart_rate');
+        const char = await service.getCharacteristic('heart_rate_measurement');
+        
+        await char.startNotifications();
+        
+        document.getElementById('btn-bluetooth').innerText = "✅ " + device.name;
+        document.getElementById('btn-bluetooth').style.background = "#4caf50";
+        log("藍牙連線成功！");
+
+        char.addEventListener('characteristicvaluechanged', (e) => {
+            currentHR = e.target.value.getUint8(1);
+            document.getElementById('val-hr').innerText = `HR: ${currentHR} bpm`;
+        });
+
+    } catch (err) {
+        log(`連線失敗: ${err.message}`);
+        alert("連線失敗！請確保：\n1. 網址為 HTTPS\n2. 心率帶未被其他 App 佔用\n3. 您的藍芽已開啟");
+    }
+});
 
     document.getElementById('btn-download').addEventListener('click', () => {
         const csvContent = "data:text/csv;charset=utf-8," + csvData.map(e => e.join(",")).join("\n");
