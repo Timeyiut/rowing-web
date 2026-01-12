@@ -109,7 +109,7 @@
     });
 
     // 2. iPhone 鏡頭啟動優化
-    async function startCamera() {
+    async function startCamera(environment) {
         log("正在嘗試存取鏡頭...");
         try {
             // 使用 MediaPipe 的 Camera 工具，並明確指定面對方向
