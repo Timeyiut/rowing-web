@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Rowing Pro Web - iPhone 優化版</title>
+    <title>Rowing Pro Web - 雙鏡頭優化版</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -13,10 +13,10 @@
         body { margin: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
         #container { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
         
-        /* iPhone 優化：確保 Canvas 填滿畫面 */
         #output_canvas { width: 100%; height: auto; object-fit: contain; }
+        /* 鏡像翻轉類別 */
+        .mirrored { transform: scaleX(-1); }
         
-        /* 隱藏原始影片，但必須存在且具備必要屬性 */
         #input_video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
         #ui-panel {
@@ -26,36 +26,39 @@
         }
         .data-line { margin: 2px 0; font-size: 14px; }
         
-        /* 【除錯專用】顯示在畫面底部的 Log */
         #debug-log {
-            position: absolute; bottom: 80px; left: 10px; right: 10px;
-            font-size: 10px; color: #aaa; background: rgba(0,0,0,0.5); max-height: 50px; overflow: hidden;
+            position: absolute; bottom: 85px; left: 10px; right: 10px;
+            font-size: 10px; color: #0f0; background: rgba(0,0,0,0.5); padding: 5px;
         }
 
+        /* 按鈕區域 */
         #controls {
             position: absolute; bottom: 20px; width: 100%;
-            display: flex; justify-content: center; gap: 10px; z-index: 20;
+            display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; z-index: 20;
         }
-        button { padding: 10px 20px; border-radius: 20px; border: none; font-weight: bold; background: #2196F3; color: white; }
+        button {
+            padding: 10px 15px; border-radius: 20px; border: none; 
+            font-weight: bold; background: #2196F3; color: white; cursor: pointer;
+        }
+        .btn-active { background: #ff9800 !important; }
     </style>
 </head>
 <body>
 
 <div id="container">
     <video id="input_video" playsinline muted autoplay></video>
-    <canvas id="output_canvas"></canvas>
-
-    <div id="ui-panel">
+    <canvas id="output_canvas" class="mirrored"></canvas> <div id="ui-panel">
         <div id="val-hr" style="font-size: 20px; color: #ff3d00;">HR: 0 bpm</div>
-        <div id="val-phase" style="color: #00ff00;">PHASE: Initializing...</div>
+        <div id="val-phase" style="color: #00ff00;">系統初始化中...</div>
         <div class="data-line">KNEE: <span id="ang-knee">0</span> | HIP: <span id="ang-hip">0</span></div>
     </div>
 
-    <div id="debug-log">系統狀態: 準備中...</div>
+    <div id="debug-log">鏡頭狀態: 等待啟動...</div>
 
     <div id="controls">
-        <button id="btn-bluetooth" style="background: #e91e63;">連線藍牙</button>
-        <button id="btn-download" style="background: #4caf50;">存檔 CSV</button>
+        <button id="btn-switch-cam">🔄 切換鏡頭</button>
+        <button id="btn-bluetooth" style="background: #e91e63;">🔗 連線心率</button>
+        <button id="btn-download" style="background: #4caf50;">💾 下載 CSV</button>
     </div>
 </div>
 
@@ -65,9 +68,13 @@
     const canvasCtx = canvasElement.getContext('2d');
     const debugLog = document.getElementById('debug-log');
 
+    let cameraInstance = null;
+    let currentFacingMode = 'user'; // 'user' 為前鏡頭, 'environment' 為後鏡頭
+    let currentHR = 0;
+    let csvData = [["Timestamp", "HeartRate", "Knee", "Hip", "Elbow", "Phase"]];
+
     function log(msg) {
-        debugLog.innerText = msg;
-        console.log(msg);
+        debugLog.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
     }
 
     // 1. MediaPipe Pose 設定
@@ -97,49 +104,93 @@
         canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
         if (results.poseLandmarks) {
-            drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+            drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 3});
             const lm = results.poseLandmarks;
             const knee = calculateAngle(lm[23], lm[25], lm[27]);
             const hip = calculateAngle(lm[11], lm[23], lm[25]);
+            
             document.getElementById('ang-knee').innerText = knee;
             document.getElementById('ang-hip').innerText = hip;
-            document.getElementById('val-phase').innerText = "PHASE: Tracking";
+            document.getElementById('val-phase').innerText = "PHASE: Tracking OK";
+            
+            // 數據記錄
+            const now = new Date();
+            csvData.push([now.toISOString(), currentHR, knee, hip, 0, "Tracking"]);
         }
         canvasCtx.restore();
     });
 
-    // 2. iPhone 鏡頭啟動優化
-    async function startCamera(environment) {
-        log("正在嘗試存取鏡頭...");
+    // 2. 鏡頭啟動與切換邏輯
+    async function startCamera(mode) {
+        log(`正在啟動 ${mode === 'user' ? '前置' : '後置'} 鏡頭...`);
+        
+        // 處理畫面的鏡像翻轉
+        if (mode === 'user') {
+            canvasElement.classList.add('mirrored');
+        } else {
+            canvasElement.classList.remove('mirrored');
+        }
+
+        // 如果已有舊鏡頭在執行，先停止它
+        if (cameraInstance) {
+            await cameraInstance.stop();
+        }
+
         try {
-            // 使用 MediaPipe 的 Camera 工具，並明確指定面對方向
-            const camera = new Camera(videoElement, {
+            cameraInstance = new Camera(videoElement, {
                 onFrame: async () => {
                     await pose.send({image: videoElement});
                 },
                 width: 640,
                 height: 480,
-                // iPhone 改用後鏡頭測試 (environment)，或前鏡頭 (user)
-                facingMode: 'user' 
+                facingMode: mode
             });
-            await camera.start();
-            log("鏡頭啟動成功！");
+            await cameraInstance.start();
+            currentFacingMode = mode;
+            log(`鏡頭已開啟: ${mode}`);
         } catch (err) {
-            log("鏡頭錯誤: " + err.message);
-            // 備案：手動調用 getUserMedia
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
-                .then(stream => {
-                    videoElement.srcObject = stream;
-                    log("手動調用鏡頭成功");
-                });
+            log(`錯誤: ${err.message}`);
         }
     }
 
-    // 頁面載入後自動嘗試啟動
-    window.onload = startCamera;
+    // 切換按鈕事件
+    document.getElementById('btn-switch-cam').addEventListener('click', () => {
+        const nextMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+        startCamera(nextMode);
+    });
 
-    // 3. 藍牙連線與 CSV (維持原有邏輯)
-    // ... (此處省略部分重複的藍牙代碼)
+    // 3. 藍牙與 CSV 功能
+    document.getElementById('btn-bluetooth').addEventListener('click', async () => {
+        try {
+            const device = await navigator.bluetooth.requestDevice({
+                filters: [{ services: ['heart_rate'] }]
+            });
+            const server = await device.gatt.connect();
+            const service = await server.getPrimaryService('heart_rate');
+            const char = await service.getCharacteristic('heart_rate_measurement');
+            await char.startNotifications();
+            log("藍牙心率帶已連線！");
+            document.getElementById('btn-bluetooth').classList.add('btn-active');
+            char.addEventListener('characteristicvaluechanged', (e) => {
+                currentHR = e.target.value.getUint8(1);
+                document.getElementById('val-hr').innerText = `HR: ${currentHR} bpm`;
+            });
+        } catch (err) {
+            log(`藍牙錯誤: ${err}`);
+        }
+    });
+
+    document.getElementById('btn-download').addEventListener('click', () => {
+        const csvContent = "data:text/csv;charset=utf-8," + csvData.map(e => e.join(",")).join("\n");
+        const link = document.createElement("a");
+        link.href = encodeURI(csvContent);
+        link.download = `rowing_${new Date().getTime()}.csv`;
+        link.click();
+        log("CSV 已匯出，請檢查『檔案』App 下載項目。");
+    });
+
+    // 初始啟動
+    window.onload = () => startCamera('user');
 </script>
 </body>
 </html>
