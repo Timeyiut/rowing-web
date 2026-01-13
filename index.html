@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Rowing Pro Web - 雙鏡頭優化版</title>
+    <title>Rowing Pro Web - 影片分析整合版</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -12,52 +12,55 @@
     <style>
         body { margin: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
         #container { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
-        
         #output_canvas { width: 100%; height: auto; object-fit: contain; }
-        /* 鏡像翻轉類別 */
         .mirrored { transform: scaleX(-1); }
-        
-        #input_video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        #input_video { position: absolute; width: 1px; height: 1px; opacity: 0; }
 
         #ui-panel {
-            position: absolute; top: 10px; left: 10px; right: 10px;
-            padding: 10px; background: rgba(0, 0, 0, 0.6); border-radius: 8px;
-            z-index: 10; pointer-events: none;
+            position: absolute; top: 15px; left: 15px; right: 15px;
+            padding: 15px; background: rgba(255, 255, 255, 0.1); 
+            backdrop-filter: blur(10px); border-radius: 12px; z-index: 10;
         }
-        .data-line { margin: 2px 0; font-size: 14px; }
-        
+        #val-hr { font-size: 22px; color: #ff3d00; font-weight: bold; }
         #debug-log {
-            position: absolute; bottom: 85px; left: 10px; right: 10px;
-            font-size: 10px; color: #0f0; background: rgba(0,0,0,0.5); padding: 5px;
+            position: absolute; bottom: 130px; left: 15px; right: 15px;
+            font-size: 11px; color: #00ff00; background: rgba(0,0,0,0.7); padding: 8px;
         }
 
-        /* 按鈕區域 */
         #controls {
             position: absolute; bottom: 20px; width: 100%;
-            display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; z-index: 20;
+            display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; z-index: 20;
         }
-        button {
-            padding: 10px 15px; border-radius: 20px; border: none; 
-            font-weight: bold; background: #2196F3; color: white; cursor: pointer;
+        button, label {
+            padding: 10px 15px; border-radius: 25px; border: none; 
+            font-weight: bold; color: white; cursor: pointer; font-size: 13px; background: #2196F3;
         }
-        .btn-active { background: #ff9800 !important; }
+        /* 隱藏原生檔案選取器，使用自定義 label 樣式 */
+        #video-upload { display: none; }
     </style>
 </head>
 <body>
 
 <div id="container">
-    <video id="input_video" playsinline muted autoplay></video>
-    <canvas id="output_canvas" class="mirrored"></canvas> <div id="ui-panel">
-        <div id="val-hr" style="font-size: 20px; color: #ff3d00;">HR: 0 bpm</div>
-        <div id="val-phase" style="color: #00ff00;">系統初始化中...</div>
-        <div class="data-line">KNEE: <span id="ang-knee">0</span> | HIP: <span id="ang-hip">0</span></div>
+    <video id="input_video" playsinline muted loop></video>
+    <canvas id="output_canvas" class="mirrored"></canvas>
+
+    <div id="ui-panel">
+        <div id="val-time" style="font-family: monospace;">TIME: --:--:--</div>
+        <div id="val-hr">HR: 0 bpm</div>
+        <div id="val-phase" style="color:#00ff00; font-weight:bold;">系統就緒</div>
+        <div style="font-size: 14px;">KNEE: <span id="ang-knee">0</span> | HIP: <span id="ang-hip">0</span></div>
     </div>
 
-    <div id="debug-log">鏡頭狀態: 等待啟動...</div>
+    <div id="debug-log">狀態：等待操作... (可選擇開啟相機或匯入影片)</div>
 
     <div id="controls">
-        <button id="btn-switch-cam">🔄 切換鏡頭</button>
-        <button id="btn-bluetooth" style="background: #e91e63;">🔗 連線心率</button>
+        <button id="btn-camera">📸 開啟相機</button>
+        <label for="video-upload" style="background: #673ab7;">🎬 匯入影片分析</label>
+        <input type="file" id="video-upload" accept="video/*">
+        
+        <button id="btn-switch">🔄 切換鏡頭</button>
+        <button id="btn-bluetooth" style="background: #e91e63;">🔗 藍牙連線</button>
         <button id="btn-download" style="background: #4caf50;">💾 下載 CSV</button>
     </div>
 </div>
@@ -67,27 +70,20 @@
     const canvasElement = document.getElementById('output_canvas');
     const canvasCtx = canvasElement.getContext('2d');
     const debugLog = document.getElementById('debug-log');
+    const fileInput = document.getElementById('video-upload');
 
     let cameraInstance = null;
-    let currentFacingMode = 'user'; // 'user' 為前鏡頭, 'environment' 為後鏡頭
+    let isProcessingVideo = false;
     let currentHR = 0;
-    let csvData = [["Timestamp", "HeartRate", "Knee", "Hip", "Elbow", "Phase"]];
+    let csvData = [["Timestamp", "HeartRate", "Knee", "Hip", "Phase"]];
 
-    function log(msg) {
-        debugLog.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    }
+    function log(msg) { debugLog.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`; }
 
-    // 1. MediaPipe Pose 設定
+    // 1. MediaPipe Pose 初始化
     const pose = new Pose({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
     });
-
-    pose.setOptions({
-        modelComplexity: 1,
-        smoothLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
-    });
+    pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
     function calculateAngle(a, b, c) {
         let radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
@@ -104,105 +100,94 @@
         canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
         if (results.poseLandmarks) {
-            drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 3});
+            drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
             const lm = results.poseLandmarks;
             const knee = calculateAngle(lm[23], lm[25], lm[27]);
             const hip = calculateAngle(lm[11], lm[23], lm[25]);
             
             document.getElementById('ang-knee').innerText = knee;
             document.getElementById('ang-hip').innerText = hip;
-            document.getElementById('val-phase').innerText = "PHASE: Tracking OK";
             
-            // 數據記錄
             const now = new Date();
-            csvData.push([now.toISOString(), currentHR, knee, hip, 0, "Tracking"]);
+            document.getElementById('val-time').innerText = `TIME: ${now.toLocaleTimeString()}`;
+            csvData.push([now.toISOString(), currentHR, knee, hip, "VideoAnalysis"]);
         }
         canvasCtx.restore();
     });
 
-    // 2. 鏡頭啟動與切換邏輯
-    async function startCamera(mode) {
-        log(`正在啟動 ${mode === 'user' ? '前置' : '後置'} 鏡頭...`);
-        
-        // 處理畫面的鏡像翻轉
-        if (mode === 'user') {
-            canvasElement.classList.add('mirrored');
-        } else {
-            canvasElement.classList.remove('mirrored');
+    // 2. 影片處理循環
+    async function processVideoFrame() {
+        if (!isProcessingVideo) return;
+        if (!videoElement.paused && !videoElement.ended) {
+            await pose.send({image: videoElement});
         }
-
-        // 如果已有舊鏡頭在執行，先停止它
-        if (cameraInstance) {
-            await cameraInstance.stop();
-        }
-
-        try {
-            cameraInstance = new Camera(videoElement, {
-                onFrame: async () => {
-                    await pose.send({image: videoElement});
-                },
-                width: 640,
-                height: 480,
-                facingMode: mode
-            });
-            await cameraInstance.start();
-            currentFacingMode = mode;
-            log(`鏡頭已開啟: ${mode}`);
-        } catch (err) {
-            log(`錯誤: ${err.message}`);
-        }
+        requestAnimationFrame(processVideoFrame);
     }
 
-    // 切換按鈕事件
-    document.getElementById('btn-switch-cam').addEventListener('click', () => {
-        const nextMode = (currentFacingMode === 'user') ? 'environment' : 'user';
-        startCamera(nextMode);
+    // 3. 事件監聽：匯入影片檔案
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        log(`已載入影片：${file.name}`);
+        isProcessingVideo = true;
+        
+        // 停止目前的相機（如果有）
+        if (cameraInstance) {
+            cameraInstance.stop();
+            cameraInstance = null;
+        }
+
+        // 影片分析通常不需要鏡像翻轉
+        canvasElement.classList.remove('mirrored');
+
+        const url = URL.createObjectURL(file);
+        videoElement.src = url;
+        videoElement.play();
+        
+        processVideoFrame(); // 啟動分析循環
+        document.getElementById('val-phase').innerText = "PHASE: 影片分析中";
     });
 
-    // 3. 藍牙與 CSV 功能
-    // 3. 藍芽連線優化版 (網頁版無法指定 MAC，但可以指定名稱或服務)
-document.getElementById('btn-bluetooth').addEventListener('click', async () => {
-    log("正在搜尋心率設備...");
-    try {
-        const device = await navigator.bluetooth.requestDevice({
-            // 搜尋所有提供心率服務的設備
-            filters: [{ services: ['heart_rate'] }],
-            optionalServices: ['battery_service']
-        });
-
-        log(`找到設備: ${device.name}`);
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService('heart_rate');
-        const char = await service.getCharacteristic('heart_rate_measurement');
+    // 4. 事件監聽：開啟相機
+    document.getElementById('btn-camera').addEventListener('click', async () => {
+        isProcessingVideo = false;
+        videoElement.pause();
+        canvasElement.classList.add('mirrored'); // 相機預設鏡像
         
-        await char.startNotifications();
-        
-        document.getElementById('btn-bluetooth').innerText = "✅ " + device.name;
-        document.getElementById('btn-bluetooth').style.background = "#4caf50";
-        log("藍牙連線成功！");
-
-        char.addEventListener('characteristicvaluechanged', (e) => {
-            currentHR = e.target.value.getUint8(1);
-            document.getElementById('val-hr').innerText = `HR: ${currentHR} bpm`;
+        cameraInstance = new Camera(videoElement, {
+            onFrame: async () => { await pose.send({image: videoElement}); },
+            width: 640, height: 480, facingMode: 'user'
         });
+        await cameraInstance.start();
+        log("相機已啟動");
+        document.getElementById('val-phase').innerText = "PHASE: 即時追蹤";
+    });
 
-    } catch (err) {
-        log(`連線失敗: ${err.message}`);
-        alert("連線失敗！請確保：\n1. 網址為 HTTPS\n2. 心率帶未被其他 App 佔用\n3. 您的藍芽已開啟");
-    }
-});
+    // 5. 藍牙與下載功能（維持原有邏輯）
+    document.getElementById('btn-bluetooth').addEventListener('click', async () => {
+        if (!navigator.bluetooth) { alert("此環境不支援藍牙"); return; }
+        try {
+            const device = await navigator.bluetooth.requestDevice({ filters: [{ services: ['heart_rate'] }] });
+            const server = await device.gatt.connect();
+            const service = await server.getPrimaryService('heart_rate');
+            const char = await service.getCharacteristic('heart_rate_measurement');
+            await char.startNotifications();
+            char.addEventListener('characteristicvaluechanged', (e) => {
+                currentHR = e.target.value.getUint8(1);
+                document.getElementById('val-hr').innerText = `HR: ${currentHR} bpm`;
+            });
+            log("心率帶連線成功！");
+        } catch (err) { log("藍牙連線取消"); }
+    });
 
     document.getElementById('btn-download').addEventListener('click', () => {
         const csvContent = "data:text/csv;charset=utf-8," + csvData.map(e => e.join(",")).join("\n");
         const link = document.createElement("a");
         link.href = encodeURI(csvContent);
-        link.download = `rowing_${new Date().getTime()}.csv`;
+        link.download = `rowing_analysis_${Date.now()}.csv`;
         link.click();
-        log("CSV 已匯出，請檢查『檔案』App 下載項目。");
     });
-
-    // 初始啟動
-    window.onload = () => startCamera('user');
 </script>
 </body>
 </html>
