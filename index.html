@@ -3,49 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Rowing Pro Web - 進度條優化版</title>
+    <title>Rowing Pro Web - 互動進度條版</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
     <style>
-        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
+        body { margin: 0; background: #111; color: #fff; font-family: -apple-system, sans-serif; overflow: hidden; }
         #container { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
-        #output_canvas { width: 100%; height: auto; object-fit: contain; }
+        
+        /* 畫布與影片設定 */
+        #output_canvas { width: 100%; height: auto; object-fit: contain; background: #000; }
         .mirrored { transform: scaleX(-1); }
         #input_video { position: absolute; width: 1px; height: 1px; opacity: 0; }
 
+        /* UI 面板 */
         #ui-panel {
             position: absolute; top: 15px; left: 15px; right: 15px;
-            padding: 15px; background: rgba(255, 255, 255, 0.1); 
-            backdrop-filter: blur(10px); border-radius: 12px; z-index: 10;
+            padding: 15px; background: rgba(0, 0, 0, 0.6); 
+            backdrop-filter: blur(15px); border-radius: 15px; z-index: 10;
+            border: 1px solid rgba(255,255,255,0.1);
         }
+        .data-line { margin: 5px 0; font-size: 14px; }
+        #val-hr { font-size: 22px; color: #ff3d00; font-weight: bold; }
 
-        /* 【新增】影片進度條樣式 */
+        /* 【優化】可點擊的影片進度條 */
         #progress-container {
-            position: absolute; bottom: 80px; left: 20px; right: 20px;
-            height: 12px; background: rgba(255, 255, 255, 0.2);
-            border-radius: 6px; overflow: hidden; display: none; /* 預設隱藏 */
-            z-index: 15;
+            position: absolute; bottom: 90px; left: 20px; right: 20px;
+            height: 20px; background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px; cursor: pointer; display: none; z-index: 15;
+            display: flex; align-items: center;
         }
         #progress-bar {
-            width: 0%; height: 100%; background: #4caf50;
-            transition: width 0.1s linear;
+            width: 0%; height: 8px; background: #4caf50;
+            border-radius: 4px; margin: 0 5px; pointer-events: none;
         }
 
         #debug-log {
-            position: absolute; bottom: 105px; left: 15px; right: 15px;
-            font-size: 11px; color: #00ff00; background: rgba(0,0,0,0.5); padding: 5px;
+            position: absolute; bottom: 120px; left: 15px; right: 15px;
+            font-size: 12px; color: #0f0; background: rgba(0,0,0,0.5); padding: 5px; border-radius: 5px;
         }
 
         #controls {
             position: absolute; bottom: 20px; width: 100%;
-            display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; z-index: 20;
+            display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; z-index: 20;
         }
         button, label {
-            padding: 8px 12px; border-radius: 20px; border: none; 
-            font-weight: bold; color: white; cursor: pointer; font-size: 13px; background: #2196F3;
+            padding: 10px 18px; border-radius: 25px; border: none; 
+            font-weight: bold; color: white; cursor: pointer; font-size: 14px;
+            background: #2196F3; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
         #video-upload { display: none; }
     </style>
@@ -56,25 +63,25 @@
     <video id="input_video" playsinline muted loop></video>
     <canvas id="output_canvas" class="mirrored"></canvas>
 
-    <div id="progress-container">
+    <div id="progress-container" title="點擊跳轉影片時間">
         <div id="progress-bar"></div>
     </div>
 
     <div id="ui-panel">
-        <div id="val-time" style="font-family: monospace;">TIME: --:--:--</div>
-        <div id="val-hr" style="font-size: 20px; color: #ff3d00;">HR: 0 bpm</div>
-        <div id="val-phase" style="color:#00ff00; font-weight:bold;">系統就緒</div>
-        <div style="font-size: 14px;">KNEE: <span id="ang-knee">0</span> | HIP: <span id="ang-hip">0</span></div>
+        <div id="val-time">TIME: --:--:--</div>
+        <div id="val-hr">HR: 0 bpm</div>
+        <div id="val-phase" style="color:#00ff00; font-weight:bold;">系統初始化...</div>
+        <hr style="border: 0.5px solid rgba(255,255,255,0.2);">
+        <div class="data-line">KNEE: <span id="ang-knee" style="color:#ffeb3b">0</span> | HIP: <span id="ang-hip" style="color:#ffeb3b">0</span></div>
     </div>
 
-    <div id="debug-log">狀態：待機中...</div>
+    <div id="debug-log">正在載入 MediaPipe 模型...</div>
 
     <div id="controls">
-        <button id="btn-camera">📸 相機分析</button>
+        <button id="btn-camera" style="background: #00bcd4;">📸 相機追蹤</button>
         <label for="video-upload" style="background: #673ab7;">🎬 匯入影片</label>
         <input type="file" id="video-upload" accept="video/*">
-        
-        <button id="btn-bluetooth" style="background: #e91e63;">🔗 藍牙</button>
+        <button id="btn-bluetooth" style="background: #e91e63;">🔗 藍牙心率</button>
         <button id="btn-download" style="background: #4caf50;">💾 下載 CSV</button>
     </div>
 </div>
@@ -90,23 +97,20 @@
 
     let cameraInstance = null;
     let isProcessingVideo = false;
+    let currentHR = 0;
     let csvData = [["Timestamp", "HeartRate", "Knee", "Hip", "Phase"]];
 
-    function log(msg) { debugLog.innerText = msg; }
+    function log(msg, isError = false) {
+        debugLog.style.color = isError ? "#ff5252" : "#0f0";
+        debugLog.innerText = `[系統] ${msg}`;
+    }
 
-    // 1. MediaPipe Pose 初始化
+    // 1. 初始化 Pose 模型
     const pose = new Pose({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
     });
     pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-
-    function calculateAngle(a, b, c) {
-        let radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-        let angle = Math.abs(radians * 180.0 / Math.PI);
-        if (angle > 180.0) angle = 360 - angle;
-        return Math.round(angle);
-    }
-
+    
     pose.onResults((results) => {
         canvasElement.width = videoElement.videoWidth;
         canvasElement.height = videoElement.videoHeight;
@@ -125,12 +129,18 @@
             
             const now = new Date();
             document.getElementById('val-time').innerText = `TIME: ${now.toLocaleTimeString()}`;
-            csvData.push([now.toISOString(), 0, knee, hip, isProcessingVideo ? "Video" : "Live"]);
+            csvData.push([now.toISOString(), currentHR, knee, hip, isProcessingVideo ? "Video" : "Live"]);
         }
         canvasCtx.restore();
     });
 
-    // 2. 【新增】進度條更新邏輯
+    function calculateAngle(a, b, c) {
+        let radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+        let angle = Math.abs(radians * 180.0 / Math.PI);
+        return Math.round(angle > 180.0 ? 360 - angle : angle);
+    }
+
+    // 2. 影片進度與跳轉邏輯
     videoElement.addEventListener('timeupdate', () => {
         if (isProcessingVideo && videoElement.duration) {
             const progress = (videoElement.currentTime / videoElement.duration) * 100;
@@ -138,56 +148,83 @@
         }
     });
 
-    // 3. 事件監聽：影片上傳
+    // 【新增】點擊進度條跳轉功能
+    progressContainer.addEventListener('click', (e) => {
+        if (!isProcessingVideo || !videoElement.duration) return;
+        const rect = progressContainer.getBoundingClientRect();
+        const pos = (e.clientX - rect.left) / rect.width;
+        videoElement.currentTime = pos * videoElement.duration;
+        log(`跳轉至影片時間：${Math.round(videoElement.currentTime)}秒`);
+    });
+
+    // 3. 切換模式：影片
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
-
-        isProcessingVideo = true;
-        progressContainer.style.display = 'block'; // 顯示進度條
-        canvasElement.classList.remove('mirrored');
-
         if (cameraInstance) { cameraInstance.stop(); cameraInstance = null; }
-
-        const url = URL.createObjectURL(file);
-        videoElement.src = url;
+        
+        isProcessingVideo = true;
+        progressContainer.style.display = 'flex';
+        canvasElement.classList.remove('mirrored');
+        videoElement.src = URL.createObjectURL(file);
         videoElement.play();
         
-        // 啟動分析循環
-        async function processFrame() {
+        async function loop() {
             if (!isProcessingVideo) return;
-            if (!videoElement.paused && !videoElement.ended) {
-                await pose.send({image: videoElement});
-            }
-            requestAnimationFrame(processFrame);
+            if (!videoElement.paused && !videoElement.ended) { await pose.send({image: videoElement}); }
+            requestAnimationFrame(loop);
         }
-        processFrame();
-        log(`正在分析影片：${file.name}`);
+        loop();
+        log("分析影片中，您可以點擊進度條跳轉時間。");
+        document.getElementById('val-phase').innerText = "PHASE: 影片回放分析";
     });
 
-    // 4. 事件監聽：相機模式
+    // 4. 切換模式：相機
     document.getElementById('btn-camera').addEventListener('click', async () => {
         isProcessingVideo = false;
-        progressContainer.style.display = 'none'; // 隱藏進度條
+        progressContainer.style.display = 'none';
         videoElement.pause();
         canvasElement.classList.add('mirrored');
         
-        cameraInstance = new Camera(videoElement, {
-            onFrame: async () => { await pose.send({image: videoElement}); },
-            width: 640, height: 480, facingMode: 'user'
-        });
-        await cameraInstance.start();
-        log("相機即時追蹤中");
+        try {
+            cameraInstance = new Camera(videoElement, {
+                onFrame: async () => { await pose.send({image: videoElement}); },
+                width: 640, height: 480, facingMode: 'user'
+            });
+            await cameraInstance.start();
+            log("相機即時分析啟動。");
+            document.getElementById('val-phase').innerText = "PHASE: 即時追蹤中";
+        } catch (err) {
+            log("無法開啟鏡頭，請檢查權限。", true);
+        }
     });
 
-    // 下載與藍牙功能維持不變...
+    // 5. 藍牙與 CSV (維持原有邏輯)
+    document.getElementById('btn-bluetooth').addEventListener('click', async () => {
+        if (!navigator.bluetooth) { alert("此瀏覽器不支援藍牙，iPhone 請改用 Bluefy。"); return; }
+        try {
+            const device = await navigator.bluetooth.requestDevice({ filters: [{ services: ['heart_rate'] }] });
+            const server = await device.gatt.connect();
+            const service = await server.getPrimaryService('heart_rate');
+            const char = await service.getCharacteristic('heart_rate_measurement');
+            await char.startNotifications();
+            char.addEventListener('characteristicvaluechanged', (e) => {
+                currentHR = e.target.value.getUint8(1);
+                document.getElementById('val-hr').innerText = `HR: ${currentHR} bpm`;
+            });
+            log("藍牙連線成功。");
+        } catch (err) { log("藍牙連線取消。"); }
+    });
+
     document.getElementById('btn-download').addEventListener('click', () => {
         const csvContent = "data:text/csv;charset=utf-8," + csvData.map(e => e.join(",")).join("\n");
         const link = document.createElement("a");
         link.href = encodeURI(csvContent);
-        link.download = `rowing_analysis_${Date.now()}.csv`;
+        link.download = `rowing_report_${Date.now()}.csv`;
         link.click();
     });
+
+    window.onload = () => log("系統就緒，請選擇相機或匯入影片。");
 </script>
 </body>
 </html>
