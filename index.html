@@ -3,73 +3,85 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Rowing Pro v5.0 (Debug)</title>
+    <title>Rowing Pro v5.5 (Video First)</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
     <style>
-        :root { --bg: #000; --accent: #00E5FF; --panel: rgba(20,20,20,0.8); }
+        :root { --bg: #000; --accent: #00E5FF; --panel: rgba(20,20,20,0.9); --btn-bg: #333; }
         body { margin: 0; background: var(--bg); color: #fff; font-family: monospace; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
 
-        /* 畫布區域 */
-        #stage { position: relative; flex: 1; display: flex; justify-content: center; align-items: center; background: #111; overflow: hidden; }
+        /* 主畫面與畫布 */
+        #stage { position: relative; flex: 1; display: flex; justify-content: center; align-items: center; background: #000; overflow: hidden; }
         
-        /* 影片與 Canvas 重疊 */
+        /* 影片與 Canvas 堆疊 */
         video { position: absolute; width: 100%; height: 100%; object-fit: contain; opacity: 0; pointer-events: none; }
         canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; }
         
-        /* 除錯終端機 (關鍵功能) */
+        /* 除錯終端機 (保留以利排錯) */
         #console-log {
-            position: absolute; top: 0; left: 0; width: 100%; height: 120px;
-            background: rgba(0,0,0,0.7); color: #0f0; font-size: 10px;
-            padding: 10px; overflow-y: auto; z-index: 100; pointer-events: none;
-            border-bottom: 1px solid #333;
+            position: absolute; top: 0; left: 0; width: 100%; height: 80px;
+            background: rgba(0,0,0,0.6); color: #0f0; font-size: 10px;
+            padding: 8px; overflow-y: auto; z-index: 100; pointer-events: none;
         }
 
         /* 數據儀表板 */
         #hud {
-            position: absolute; top: 130px; left: 10px; right: 10px;
+            position: absolute; top: 90px; left: 10px; right: 10px;
             display: grid; grid-template-columns: 1fr 1fr; gap: 8px; z-index: 50;
+            pointer-events: none;
         }
-        .card { background: var(--panel); padding: 10px; border-radius: 8px; border: 1px solid #333; text-align: center; }
-        .val { font-size: 20px; font-weight: bold; color: var(--accent); }
+        .card { background: var(--panel); padding: 8px; border-radius: 8px; border: 1px solid #444; text-align: center; }
+        .val { font-size: 18px; font-weight: bold; color: var(--accent); }
         .lbl { font-size: 10px; color: #888; text-transform: uppercase; }
+
+        /* 影片進度條 (僅在影片模式顯示) */
+        #timeline-container {
+            position: absolute; bottom: 95px; left: 15px; right: 15px;
+            height: 20px; z-index: 60; display: none; align-items: center;
+        }
+        #timeline-bg { width: 100%; height: 8px; background: rgba(255,255,255,0.3); border-radius: 4px; position: relative; }
+        #timeline-fill { width: 0%; height: 100%; background: var(--accent); border-radius: 4px; }
 
         /* 底部控制列 */
         #controls {
-            height: 80px; background: #111; display: flex; gap: 10px; 
+            height: 85px; background: #111; display: flex; gap: 8px; 
             padding: 10px; align-items: center; justify-content: center;
             border-top: 1px solid #333; z-index: 50;
         }
+        /* 按鈕樣式優化 */
         button, label {
-            flex: 1; height: 50px; border: none; border-radius: 8px;
-            background: #333; color: #fff; font-size: 12px; font-weight: bold;
+            flex: 1; height: 55px; border: none; border-radius: 8px;
+            background: var(--btn-bg); color: #fff; font-size: 11px; font-weight: bold;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            cursor: pointer; transition: 0.2s;
+            cursor: pointer; transition: 0.2s; -webkit-tap-highlight-color: transparent;
         }
-        button:active { background: var(--accent); color: #000; }
-        .btn-icon { font-size: 18px; margin-bottom: 2px; }
+        button:active, label:active { background: var(--accent); color: #000; transform: scale(0.95); }
+        .btn-icon { font-size: 20px; margin-bottom: 4px; }
+        
+        /* 特別強調匯入按鈕 */
+        .primary-btn { background: #2c3e50; border: 1px solid var(--accent); color: var(--accent); }
         
         /* 啟動遮罩 */
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); z-index: 200;
+            background: rgba(0,0,0,0.95); z-index: 200;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
         }
         #start-btn {
-            padding: 20px 40px; font-size: 24px; background: var(--accent); 
-            color: #000; border: none; border-radius: 50px; font-weight: bold;
+            height: auto; width: auto; padding: 20px 50px; font-size: 22px; 
+            background: var(--accent); color: #000; border-radius: 50px;
         }
     </style>
 </head>
 <body>
 
-    <div id="console-log">系統初始化中...<br></div>
+    <div id="console-log">系統初始化...<br></div>
 
     <div id="overlay">
         <button id="start-btn" onclick="initSystem()">🚀 啟動系統</button>
-        <p style="color:#aaa; margin-top:10px;">請確保已允許相機權限</p>
+        <p style="color:#888; margin-top:15px; font-size:12px;">點擊後請選擇匯入影片或開啟相機</p>
     </div>
 
     <div id="stage">
@@ -77,17 +89,23 @@
         <canvas id="canvas"></canvas>
         
         <div id="hud">
-            <div class="card"><div class="val" id="ui-knee">0°</div><div class="lbl">Knee</div></div>
-            <div class="card"><div class="val" id="ui-hip">0°</div><div class="lbl">Hip</div></div>
-            <div class="card"><div class="val" id="ui-hr" style="color:#ff5252">--</div><div class="lbl">HR (BPM)</div></div>
-            <div class="card"><div class="val" id="ui-fps">0</div><div class="lbl">Phase</div></div>
+            <div class="card"><div class="val" id="ui-time">00:00</div><div class="lbl">Time</div></div>
+            <div class="card"><div class="val" id="ui-fps">IDLE</div><div class="lbl">Status</div></div>
+            <div class="card"><div class="val" id="ui-knee">0°</div><div class="lbl">Knee Angle</div></div>
+            <div class="card"><div class="val" id="ui-hip">0°</div><div class="lbl">Hip Angle</div></div>
+        </div>
+
+        <div id="timeline-container">
+            <div id="timeline-bg" onclick="seekVideo(event)">
+                <div id="timeline-fill"></div>
+            </div>
         </div>
     </div>
 
     <div id="controls">
+        <label for="file-in" class="primary-btn"><span class="btn-icon">📂</span>匯入影片</label>
         <button onclick="startCamera('user')"><span class="btn-icon">📷</span>前鏡頭</button>
         <button onclick="startCamera('environment')"><span class="btn-icon">📸</span>後鏡頭</button>
-        <label for="file-in"><span class="btn-icon">📂</span>匯入影片</label>
         <button onclick="connectBLE()"><span class="btn-icon">❤️</span>藍牙</button>
         <button onclick="exportCSV()"><span class="btn-icon">💾</span>存檔</button>
     </div>
@@ -95,7 +113,7 @@
     <input type="file" id="file-in" accept="video/*" style="display:none">
 
 <script>
-    // --- 全域變數 ---
+    // --- 變數 ---
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
@@ -105,40 +123,40 @@
     let activeStream = null;
     let animationId = null;
     let isProcessing = false;
-    let frameCount = 0;
-    let dataLog = [["Time", "HR", "Knee", "Hip", "Phase"]];
+    let isVideoMode = false;
+    let dataLog = [["Timestamp", "HR", "Knee", "Hip", "Phase"]];
     let currentHR = 0;
 
-    // --- 核心功能：印出 Log ---
+    // --- Log 工具 ---
     function log(msg) {
-        const time = new Date().toLocaleTimeString();
-        logger.innerHTML = `[${time}] ${msg}<br>` + logger.innerHTML;
+        const t = new Date().toLocaleTimeString('en-US', {hour12:false});
+        logger.innerHTML = `[${t}] ${msg}<br>` + logger.innerHTML;
         console.log(msg);
     }
 
-    // --- 1. 系統初始化 ---
+    // --- 1. 系統初始化 (不自動開鏡頭) ---
     async function initSystem() {
         document.getElementById('overlay').style.display = 'none';
-        log("使用者點擊啟動...");
+        log("使用者已授權互動");
         
         try {
-            log("正在載入 MediaPipe Pose...");
+            log("載入 AI 模型中...");
             pose = new Pose({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
             });
             
             pose.setOptions({
-                modelComplexity: 1, // 0=快, 1=準, 2=慢
+                modelComplexity: 1, 
                 smoothLandmarks: true,
                 minDetectionConfidence: 0.5,
                 minTrackingConfidence: 0.5
             });
 
             pose.onResults(onPoseResults);
-            
-            // 預熱模型
             await pose.initialize();
-            log("✅ 模型載入完成！請選擇功能");
+            
+            log("✅ 系統就緒！請點擊下方按鈕開始");
+            document.getElementById('ui-fps').innerText = "READY";
             
         } catch (e) {
             log("❌ 初始化失敗: " + e.message);
@@ -147,9 +165,7 @@
 
     // --- 2. 處理 MediaPipe 結果 ---
     function onPoseResults(results) {
-        frameCount++;
-        
-        // 確保 Canvas 尺寸正確
+        // 校正畫布
         if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -166,7 +182,7 @@
             const knee = getAngle(lm[23], lm[25], lm[27]);
             const hip = getAngle(lm[11], lm[23], lm[25]);
 
-            // 更新 UI
+            // UI 更新
             document.getElementById('ui-knee').innerText = knee + "°";
             document.getElementById('ui-hip').innerText = hip + "°";
             
@@ -174,8 +190,18 @@
             if (knee < 85) phase = "CATCH"; else if (knee > 155) phase = "FINISH";
             document.getElementById('ui-fps').innerText = phase;
 
-            // 記錄數據
-            dataLog.push([new Date().toISOString(), currentHR, knee, hip, phase]);
+            // 影片時間更新
+            if (isVideoMode) {
+                const pct = (video.currentTime / video.duration) * 100;
+                document.getElementById('timeline-fill').style.width = pct + '%';
+                let mins = Math.floor(video.currentTime / 60);
+                let secs = Math.floor(video.currentTime % 60);
+                document.getElementById('ui-time').innerText = `${mins}:${secs.toString().padStart(2,'0')}`;
+            }
+
+            // 記錄
+            const ts = isVideoMode ? video.currentTime.toFixed(2) : new Date().toLocaleTimeString();
+            dataLog.push([ts, currentHR, knee, hip, phase]);
         }
         ctx.restore();
     }
@@ -185,10 +211,41 @@
         return Math.round(ang > 180 ? 360-ang : ang);
     }
 
-    // --- 3. 啟動相機 (原生寫法，避開 bug) ---
+    // --- 3. 匯入影片 (優先級高) ---
+    document.getElementById('file-in').onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        log(`匯入影片: ${file.name}`);
+        stopAll(); // 關閉所有之前的狀態
+        isVideoMode = true;
+        
+        // 顯示影片進度條，取消鏡像
+        document.getElementById('timeline-container').style.display = 'flex';
+        canvas.classList.remove('mirrored'); // 影片不鏡像
+
+        const url = URL.createObjectURL(file);
+        video.srcObject = null;
+        video.src = url;
+        
+        video.onloadeddata = () => {
+            log("影片載入完成，開始分析...");
+            video.play();
+            isProcessing = true;
+            processLoop();
+        };
+    };
+
+    // --- 4. 啟動相機 (手動觸發) ---
     async function startCamera(facingMode) {
-        log(`嘗試啟動 ${facingMode} 相機...`);
+        log(`正在開啟 ${facingMode === 'user' ? '前' : '後'} 鏡頭...`);
         stopAll();
+        isVideoMode = false;
+
+        // 隱藏進度條，相機模式開啟鏡像(僅前鏡頭)
+        document.getElementById('timeline-container').style.display = 'none';
+        if (facingMode === 'user') canvas.classList.add('mirrored');
+        else canvas.classList.remove('mirrored');
 
         const constraints = {
             video: {
@@ -204,40 +261,19 @@
             activeStream = stream;
             video.srcObject = stream;
             
-            // 關鍵：等待影片 metadata 載入
             video.onloadedmetadata = () => {
-                log("相機影像已獲取，開始播放...");
+                log("相機影像已獲取");
                 video.play();
                 isProcessing = true;
                 processLoop();
             };
         } catch (err) {
-            log("❌ 相機錯誤: " + err.message);
-            alert("無法開啟相機，請檢查權限或是否被其他 App 佔用");
+            log("❌ 無法開啟相機: " + err.message);
+            alert("請檢查瀏覽器相機權限");
         }
     }
 
-    // --- 4. 匯入影片 ---
-    document.getElementById('file-in').onchange = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        log(`載入影片: ${file.name}`);
-        stopAll();
-
-        const url = URL.createObjectURL(file);
-        video.srcObject = null; // 清除相機流
-        video.src = url;
-        
-        video.onloadeddata = () => {
-            log("影片載入完成，開始播放分析");
-            video.play();
-            isProcessing = true;
-            processLoop();
-        };
-    };
-
-    // --- 5. 核心循環 (手動控制 FPS) ---
+    // --- 5. 核心循環 ---
     async function processLoop() {
         if (!isProcessing) return;
         
@@ -245,10 +281,9 @@
             try {
                 await pose.send({image: video});
             } catch (e) {
-                log("分析錯誤: " + e.message);
+                // 忽略偶發的 frame drop
             }
         }
-        
         animationId = requestAnimationFrame(processLoop);
     }
 
@@ -260,23 +295,34 @@
         }
         if (animationId) cancelAnimationFrame(animationId);
         video.pause();
+        video.src = "";
+        video.srcObject = null;
     }
 
-    // --- 6. 藍牙與存檔 ---
+    // --- 6. 工具功能 ---
+    
+    // 影片跳轉
+    function seekVideo(e) {
+        if (!isVideoMode || !video.duration) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const pct = (e.clientX - rect.left) / rect.width;
+        video.currentTime = pct * video.duration;
+        log(`跳轉至: ${Math.round(video.currentTime)}s`);
+    }
+
+    // 藍牙
     async function connectBLE() {
-        if (!navigator.bluetooth) return log("❌ 此瀏覽器不支援藍牙 (請用 Bluefy)");
+        if (!navigator.bluetooth) return alert("請使用 Bluefy 瀏覽器");
         try {
-            log("搜尋藍牙設備...");
             const dev = await navigator.bluetooth.requestDevice({ filters: [{ services: ['heart_rate'] }] });
             const server = await dev.gatt.connect();
-            const service = await server.getPrimaryService('heart_rate');
-            const char = await service.getCharacteristic('heart_rate_measurement');
+            const char = await (await server.getPrimaryService('heart_rate')).getCharacteristic('heart_rate_measurement');
             await char.startNotifications();
             char.addEventListener('characteristicvaluechanged', (e) => {
                 currentHR = e.target.value.getUint8(1);
                 document.getElementById('ui-hr').innerText = currentHR;
             });
-            log("✅ 藍牙已連線: " + dev.name);
+            log("藍牙已連線");
         } catch (e) { log("藍牙失敗: " + e.message); }
     }
 
@@ -284,11 +330,9 @@
         const csv = dataLog.map(r => r.join(",")).join("\n");
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
-        a.download = `rowing_${Date.now()}.csv`;
+        a.download = `rowing_data.csv`;
         a.click();
-        log("CSV 已下載");
     }
-
 </script>
 </body>
 </html>
