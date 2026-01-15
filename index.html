@@ -3,396 +3,215 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Rowing Pro iOS</title>
+    <title>Rowing Pro - iOS Analysis Engine</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
     <style>
-        /* --- 1. 現代化 GUI 風格 --- */
         :root { --bg: #0d1117; --panel: rgba(22, 27, 34, 0.85); --accent: #2f81f7; --text: #e6edf3; --green: #3fb950; --red: #ff7b72; }
-        * { box-sizing: border-box; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-        
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+        * { box-sizing: border-box; touch-action: manipulation; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, system-ui; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
 
         /* 畫布容器 */
-        #viewer { flex: 1; position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; background: #000; }
-        
-        /* 影片與 Canvas 堆疊 */
-        video { position: absolute; width: 100%; height: 100%; object-fit: contain; opacity: 0; z-index: 1; pointer-events: none; }
-        canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; z-index: 2; }
+        #viewer { flex: 1; position: relative; background: #000; display: flex; justify-content: center; align-items: center; }
+        video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        canvas { width: 100%; height: 100%; object-fit: contain; z-index: 5; }
         .mirrored { transform: scaleX(-1); }
 
-        /* 儀表板 HUD */
+        /* HUD 儀表板 */
         #hud {
-            position: absolute; top: safe-area-inset-top; left: 10px; right: 10px;
-            padding: 12px; background: var(--panel); border-radius: 12px;
+            position: absolute; top: 20px; left: 15px; right: 15px;
+            padding: 15px; background: var(--panel); border-radius: 12px;
             backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
             border: 1px solid rgba(255,255,255,0.1); z-index: 10;
-            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
         }
-        .stat-box { display: flex; flex-direction: column; }
-        .stat-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
-        .stat-val { font-size: 18px; font-weight: 700; font-family: 'SF Mono', monospace; color: var(--text); }
-        .stat-val.highlight { color: var(--green); }
-        .stat-val.alert { color: var(--red); }
-        
-        #phase-badge { 
-            grid-column: span 2; text-align: center; background: rgba(63, 185, 80, 0.2); 
-            color: var(--green); padding: 4px; border-radius: 4px; font-weight: bold; margin-top: 4px;
-        }
+        .metric { display: flex; flex-direction: column; }
+        .label { font-size: 10px; color: #8b949e; text-transform: uppercase; }
+        .value { font-size: 18px; font-weight: bold; font-family: monospace; }
+        #phase-badge { grid-column: span 2; text-align: center; color: var(--green); background: rgba(63, 185, 80, 0.1); padding: 5px; border-radius: 4px; margin-top: 5px; }
 
         /* 影片進度條 */
-        #timeline {
-            position: absolute; bottom: 80px; left: 15px; right: 15px; height: 40px; 
-            z-index: 20; display: none; align-items: center;
-        }
-        #seek-bar {
-            width: 100%; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; position: relative;
-        }
-        #progress { width: 0%; height: 100%; background: var(--accent); border-radius: 3px; position: absolute; left: 0; }
-        #thumb { width: 16px; height: 16px; background: #fff; border-radius: 50%; position: absolute; top: -5px; margin-left: -8px; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        #timeline { position: absolute; bottom: 90px; left: 20px; right: 20px; height: 30px; z-index: 15; display: none; align-items: center; }
+        #progress-bg { width: 100%; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; cursor: pointer; }
+        #progress-fill { width: 0%; height: 100%; background: var(--accent); border-radius: 3px; }
 
-        /* 底部控制列 */
-        #controls {
-            height: 80px; background: var(--panel); border-top: 1px solid rgba(255,255,255,0.1);
-            display: flex; justify-content: space-around; align-items: center; padding-bottom: env(safe-area-inset-bottom); z-index: 30;
-        }
-        .btn {
-            display: flex; flex-direction: column; align-items: center; gap: 4px;
-            background: none; border: none; color: #8b949e; font-size: 10px; cursor: pointer; width: 60px;
-        }
-        .btn-icon { width: 40px; height: 40px; background: rgba(255,255,255,0.1); border-radius: 20px; display: flex; justify-content: center; align-items: center; font-size: 20px; transition: 0.2s; }
-        .btn.active .btn-icon { background: var(--accent); color: #fff; box-shadow: 0 0 10px var(--accent); }
-        .btn:active .btn-icon { transform: scale(0.95); }
+        /* 控制列 */
+        #controls { height: 80px; background: var(--panel); display: flex; justify-content: space-around; align-items: center; padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid rgba(255,255,255,0.1); }
+        .btn { display: flex; flex-direction: column; align-items: center; color: #8b949e; text-decoration: none; font-size: 10px; background: none; border: none; }
+        .btn-icon { width: 40px; height: 40px; background: rgba(255,255,255,0.1); border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 20px; margin-bottom: 4px; }
+        .active .btn-icon { background: var(--accent); color: #fff; }
 
-        /* 載入遮罩 */
-        #loader {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; z-index: 50; display: flex; flex-direction: column;
-            justify-content: center; align-items: center; color: var(--accent);
-        }
-        .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 10px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        /* 系統日誌 (除錯用) */
+        #sys-log { position: absolute; bottom: 130px; left: 15px; right: 15px; font-size: 10px; color: #58a6ff; pointer-events: none; }
 
-        /* 檔案輸入隱藏 */
         #file-input { display: none; }
     </style>
 </head>
 <body>
 
-    <div id="loader">
-        <div class="spinner"></div>
-        <div id="status-text">載入 AI 模型中...</div>
-    </div>
-
+<div id="app">
     <div id="viewer">
         <video id="video" playsinline muted webkit-playsinline></video>
         <canvas id="canvas" class="mirrored"></canvas>
         
         <div id="hud">
-            <div class="stat-box">
-                <span class="stat-label">Time</span>
-                <span id="val-time" class="stat-val">00:00</span>
-            </div>
-            <div class="stat-box">
-                <span class="stat-label">Heart Rate</span>
-                <span id="val-hr" class="stat-val alert">--</span>
-            </div>
-            <div class="stat-box">
-                <span class="stat-label">Knee Angle</span>
-                <span id="val-knee" class="stat-val">0°</span>
-            </div>
-            <div class="stat-box">
-                <span class="stat-label">Hip Angle</span>
-                <span id="val-hip" class="stat-val">0°</span>
-            </div>
-            <div id="phase-badge">READY</div>
+            <div class="metric"><span class="label">Clock</span><span id="ui-time" class="value">--:--:--</span></div>
+            <div class="metric"><span class="label">Heart Rate</span><span id="ui-hr" class="value" style="color:var(--red)">-- bpm</span></div>
+            <div class="metric"><span class="label">Knee Angle</span><span id="ui-knee" class="value">0°</span></div>
+            <div class="metric"><span class="label">Hip Angle</span><span id="ui-hip" class="value">0°</span></div>
+            <div id="phase-badge" class="value">INITIALIZING...</div>
         </div>
 
-        <div id="timeline">
-            <div id="seek-bar">
-                <div id="progress"></div>
-                <div id="thumb" style="left: 0%"></div>
-            </div>
-        </div>
+        <div id="timeline"><div id="progress-bg"><div id="progress-fill"></div></div></div>
+        <div id="sys-log">系統準備就緒</div>
     </div>
 
     <div id="controls">
-        <button class="btn active" id="btn-cam" onclick="startCamera()">
-            <div class="btn-icon">📷</div>
-            <span>相機</span>
-        </button>
-        <button class="btn" onclick="toggleFacing()">
-            <div class="btn-icon">🔄</div>
-            <span>翻轉</span>
-        </button>
-        <label for="file-input" class="btn">
-            <div class="btn-icon">📂</div>
-            <span>匯入</span>
-        </label>
-        <button class="btn" id="btn-ble" onclick="connectBluetooth()">
-            <div class="btn-icon">❤️</div>
-            <span>藍牙</span>
-        </button>
-        <button class="btn" onclick="downloadCSV()">
-            <div class="btn-icon">💾</div>
-            <span>存檔</span>
-        </button>
+        <button class="btn" onclick="startMode('camera')"><div class="btn-icon">📷</div><span>相機</span></button>
+        <button class="btn" onclick="toggleFlip()"><div class="btn-icon">🔄</div><span>翻轉</span></button>
+        <label for="file-input" class="btn"><div class="btn-icon">📂</div><span>匯入</span></label>
+        <button class="btn" onclick="connectBLE()"><div class="btn-icon">❤️</div><span>藍牙</span></button>
+        <button class="btn" onclick="exportData()"><div class="btn-icon">💾</div><span>導出</span></button>
     </div>
-
     <input type="file" id="file-input" accept="video/*">
+</div>
 
 <script>
-    // --- 變數宣告 ---
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const loader = document.getElementById('loader');
-    const statusText = document.getElementById('status-text');
-    const seekBar = document.getElementById('seek-bar');
-    
-    let pose;
-    let camera;
-    let isVideoMode = false;
-    let isAnalyzing = false;
-    let facingMode = 'user';
-    let currentHR = 0;
-    let dataLog = [["Timestamp", "HR", "Knee", "Hip", "Phase"]];
-    let animationId;
+    const log = (m) => document.getElementById('sys-log').innerText = `[LOG] ${m}`;
 
-    // --- 1. 系統初始化 (System Init) ---
+    let pose, camera, isVideo = false, facing = 'user';
+    let bleHR = 0, history = [["TS", "HR", "Knee", "Hip", "Phase"]];
+
+    // --- 1. 初始化 AI 引擎 ---
     async function init() {
-        try {
-            pose = new Pose({
-                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-            });
-            // 降低複雜度以提升 iOS 網頁效能
-            pose.setOptions({
-                modelComplexity: 1,
-                smoothLandmarks: true,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-            pose.onResults(onResults);
-            
-            // 預熱完成
-            await pose.initialize();
-            loader.style.display = 'none';
-            startCamera(); // 預設啟動相機
-        } catch (e) {
-            statusText.innerText = "初始化失敗: " + e.message;
-        }
+        pose = new Pose({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
+        pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        pose.onResults(onResults);
+        log("MediaPipe 已載入");
     }
 
-    // --- 2. 核心分析迴圈 (Analysis Loop) ---
-    function onResults(results) {
-        // 設定 Canvas 尺寸匹配影片
-        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+    // --- 2. 核心分析邏輯 (包含角度與相位) ---
+    function calculateAngle(p1, p2, p3) {
+        const rad = Math.atan2(p3.y - p2.y, p3.x - p2.x) - Math.atan2(p1.y - p2.y, p1.x - p2.x);
+        let ang = Math.abs(rad * 180.0 / Math.PI);
+        return Math.round(ang > 180 ? 360 - ang : ang);
+    }
+
+    function onResults(res) {
+        if (!res.poseLandmarks) return;
+        
+        // 修正畫布尺寸
+        if (canvas.width !== video.videoWidth) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
         }
 
         ctx.save();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(res.image, 0, 0, canvas.width, canvas.height);
         
-        // 繪製影像
-        ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+        drawConnectors(ctx, res.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 3});
+        
+        const lm = res.poseLandmarks;
+        const knee = calculateAngle(lm[23], lm[25], lm[27]);
+        const hip = calculateAngle(lm[11], lm[23], lm[25]);
+        
+        // 更新 UI
+        document.getElementById('ui-knee').innerText = `${knee}°`;
+        document.getElementById('ui-hip').innerText = `${hip}°`;
+        
+        const now = new Date();
+        const ts = isVideo ? video.currentTime.toFixed(2) : now.toLocaleTimeString();
+        document.getElementById('ui-time').innerText = ts;
 
-        if (results.poseLandmarks) {
-            // 繪製骨架
-            drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 3 });
-            drawLandmarks(ctx, results.poseLandmarks, { color: '#FF0000', lineWidth: 1 });
+        let ph = "DRIVE";
+        if (knee < 85) ph = "CATCH"; else if (knee > 155) ph = "FINISH";
+        document.getElementById('phase-badge').innerText = ph;
 
-            // 計算角度
-            const lm = results.poseLandmarks;
-            const knee = calculateAngle(lm[23], lm[25], lm[27]);
-            const hip = calculateAngle(lm[11], lm[23], lm[25]);
-
-            // 更新 UI
-            updateUI(knee, hip);
-            
-            // 記錄數據
-            if (isAnalyzing) {
-                const ts = isVideoMode ? video.currentTime.toFixed(2) : new Date().toLocaleTimeString();
-                const phase = document.getElementById('phase-badge').innerText;
-                dataLog.push([ts, currentHR, knee, hip, phase]);
-            }
+        if (isVideo) {
+            const pct = (video.currentTime / video.duration) * 100;
+            document.getElementById('progress-fill').style.width = pct + '%';
         }
+
+        history.push([ts, bleHR, knee, hip, ph]);
         ctx.restore();
     }
 
-    function calculateAngle(a, b, c) {
-        let radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-        let angle = Math.abs(radians * 180.0 / Math.PI);
-        if (angle > 180.0) angle = 360 - angle;
-        return Math.round(angle);
-    }
+    // --- 3. 影像流控制 (修復匯入無反應問題) ---
+    async function startMode(type) {
+        isVideo = (type === 'video');
+        document.getElementById('timeline').style.display = isVideo ? 'flex' : 'none';
+        
+        if (camera) await camera.stop();
+        video.pause();
 
-    function updateUI(knee, hip) {
-        document.getElementById('val-knee').innerText = knee + "°";
-        document.getElementById('val-hip').innerText = hip + "°";
-        
-        // 判斷相位
-        let phase = "DRIVE";
-        if (knee < 85) phase = "CATCH";
-        else if (knee > 155) phase = "FINISH";
-        else if (knee > 100 && hip > 100) phase = "RECOVERY"; // 簡單判斷
-        
-        const badge = document.getElementById('phase-badge');
-        badge.innerText = phase;
-        
-        // 更新時間
-        if (isVideoMode) {
-            const min = Math.floor(video.currentTime / 60).toString().padStart(2, '0');
-            const sec = Math.floor(video.currentTime % 60).toString().padStart(2, '0');
-            document.getElementById('val-time').innerText = `${min}:${sec}`;
-            
-            // 更新進度條
-            const pct = (video.currentTime / video.duration) * 100;
-            document.getElementById('progress').style.width = pct + "%";
-            document.getElementById('thumb').style.left = pct + "%";
-        } else {
-            document.getElementById('val-time').innerText = new Date().toLocaleTimeString([], {hour12: false});
-        }
-    }
-
-    // --- 3. 模式控制 (Camera vs Video) ---
-    
-    // 啟動相機
-    async function startCamera() {
-        stopAll();
-        isVideoMode = false;
-        isAnalyzing = true;
-        
-        canvas.classList.add('mirrored'); // 自拍模式鏡像
-        document.getElementById('timeline').style.display = 'none';
-        setActiveBtn('btn-cam');
-
-        try {
+        if (type === 'camera') {
+            canvas.classList.add('mirrored');
             camera = new Camera(video, {
-                onFrame: async () => {
-                    await pose.send({image: video});
-                },
-                width: 1280, height: 720, facingMode: facingMode
+                onFrame: async () => { await pose.send({image: video}); },
+                width: 1280, height: 720, facingMode: facing
             });
-            await camera.start();
-        } catch (e) {
-            alert("相機啟動失敗: " + e.message);
+            camera.start();
         }
     }
 
-    // 切換前後鏡頭
-    function toggleFacing() {
-        facingMode = (facingMode === 'user') ? 'environment' : 'user';
-        if (!isVideoMode) startCamera();
-    }
-
-    // 處理影片匯入
     document.getElementById('file-input').onchange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
-
-        stopAll();
-        isVideoMode = true;
-        isAnalyzing = true;
         
-        canvas.classList.remove('mirrored'); // 影片不鏡像
-        document.getElementById('timeline').style.display = 'flex';
-        setActiveBtn(null); // 清除按鈕狀態
-
+        log(`匯入影片: ${file.name}`);
+        startMode('video');
+        canvas.classList.remove('mirrored');
+        
         const url = URL.createObjectURL(file);
         video.src = url;
         
-        // 確保 iOS 載入完成
+        // 關鍵：等待載入並啟動循環
         video.onloadeddata = () => {
             video.play();
-            requestVideoFrame();
+            const process = async () => {
+                if (!isVideo || video.paused || video.ended) return;
+                await pose.send({image: video});
+                requestAnimationFrame(process);
+            };
+            process();
         };
     };
 
-    // 影片分析循環
-    function requestVideoFrame() {
-        if (!isVideoMode || video.paused || video.ended) return;
-        
-        pose.send({image: video}).then(() => {
-            animationId = requestAnimationFrame(requestVideoFrame);
-        });
-    }
+    function toggleFlip() { facing = (facing === 'user' ? 'environment' : 'user'); startMode('camera'); }
 
-    function stopAll() {
-        if (camera) camera.stop();
-        if (animationId) cancelAnimationFrame(animationId);
-        video.pause();
-        video.src = "";
-        isVideoMode = false;
-        isAnalyzing = false;
-    }
-
-    // --- 4. 功能模組 (Bluetooth & Utils) ---
-
-    // 藍牙連線 (偵測 Bluefy)
-    async function connectBluetooth() {
-        if (!navigator.bluetooth) {
-            alert("⚠️ 您的瀏覽器不支援藍牙。\n\niOS 用戶請下載 'Bluefy' 瀏覽器，並在此 App 中開啟本網頁。");
-            return;
-        }
-
+    // --- 4. 藍牙與數據導出 ---
+    async function connectBLE() {
+        if (!navigator.bluetooth) return alert("iPhone 請使用 Bluefy 瀏覽器");
         try {
-            const device = await navigator.bluetooth.requestDevice({
-                filters: [{ services: ['heart_rate'] }]
-            });
-            const server = await device.gatt.connect();
-            const service = await server.getPrimaryService('heart_rate');
-            const char = await service.getCharacteristic('heart_rate_measurement');
-            
+            const dev = await navigator.bluetooth.requestDevice({ filters: [{ services: ['heart_rate'] }] });
+            const server = await dev.gatt.connect();
+            const char = await (await server.getPrimaryService('heart_rate')).getCharacteristic('heart_rate_measurement');
             await char.startNotifications();
-            char.addEventListener('characteristicvaluechanged', (e) => {
-                currentHR = e.target.value.getUint8(1);
-                const hrEl = document.getElementById('val-hr');
-                hrEl.innerText = currentHR + " bpm";
-                hrEl.classList.remove('alert');
-                hrEl.classList.add('highlight');
+            char.addEventListener('characteristicvaluechanged', (ev) => {
+                bleHR = ev.target.value.getUint8(1);
+                document.getElementById('ui-hr').innerText = `${bleHR} bpm`;
             });
-            
-            document.getElementById('btn-ble').classList.add('active');
-            alert("已連線: " + device.name);
-        } catch (e) {
-            alert("連線失敗: " + e.message);
-        }
+            log("藍牙已連線");
+        } catch (e) { log("藍牙連線取消"); }
     }
 
-    // 進度條拖拉
-    seekBar.onclick = (e) => {
-        if (!isVideoMode || !video.duration) return;
-        const rect = seekBar.getBoundingClientRect();
-        const pct = (e.clientX - rect.left) / rect.width;
-        video.currentTime = pct * video.duration;
-        if (video.paused) {
-            video.play();
-            requestVideoFrame();
-        }
-    };
-
-    // 下載 CSV
-    window.downloadCSV = () => {
-        const csvContent = "data:text/csv;charset=utf-8," + dataLog.map(e => e.join(",")).join("\n");
-        const link = document.createElement("a");
-        link.href = encodeURI(csvContent);
-        link.download = `rowing_data_${Date.now()}.csv`;
-        link.click();
-    };
-
-    function setActiveBtn(id) {
-        document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-        if (id) document.getElementById(id).classList.add('active');
+    function exportData() {
+        const csv = history.map(r => r.join(",")).join("\n");
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `rowing_data_${Date.now()}.csv`;
+        a.click();
     }
 
-    // 啟動
     init();
-
 </script>
 </body>
 </html>
