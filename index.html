@@ -3,170 +3,217 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Rowing Pro v5.5 (Video First)</title>
+    <title>Rowing Pro v6.0 (Diagnostic)</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
     <style>
-        :root { --bg: #000; --accent: #00E5FF; --panel: rgba(20,20,20,0.9); --btn-bg: #333; }
+        :root { --bg: #000; --accent: #FFD700; --err: #FF3D00; --ok: #00E676; }
         body { margin: 0; background: var(--bg); color: #fff; font-family: monospace; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
 
-        /* 主畫面與畫布 */
-        #stage { position: relative; flex: 1; display: flex; justify-content: center; align-items: center; background: #000; overflow: hidden; }
-        
-        /* 影片與 Canvas 堆疊 */
-        video { position: absolute; width: 100%; height: 100%; object-fit: contain; opacity: 0; pointer-events: none; }
-        canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; }
-        
-        /* 除錯終端機 (保留以利排錯) */
+        /* 診斷終端機 (最重要的修改) */
         #console-log {
-            position: absolute; top: 0; left: 0; width: 100%; height: 80px;
-            background: rgba(0,0,0,0.6); color: #0f0; font-size: 10px;
-            padding: 8px; overflow-y: auto; z-index: 100; pointer-events: none;
+            height: 150px; background: rgba(20,20,20,0.95); 
+            border-bottom: 2px solid #555; padding: 10px;
+            overflow-y: scroll; font-size: 11px; line-height: 1.4;
+            display: flex; flex-direction: column-reverse; /* 讓最新訊息在最上方 */
+            z-index: 200;
         }
+        .log-info { color: #aaa; }
+        .log-ok { color: var(--ok); font-weight: bold; }
+        .log-warn { color: var(--accent); }
+        .log-err { color: var(--err); background: rgba(255, 61, 0, 0.1); font-weight: bold; border-left: 3px solid var(--err); padding-left: 5px; }
 
-        /* 數據儀表板 */
-        #hud {
-            position: absolute; top: 90px; left: 10px; right: 10px;
-            display: grid; grid-template-columns: 1fr 1fr; gap: 8px; z-index: 50;
-            pointer-events: none;
-        }
-        .card { background: var(--panel); padding: 8px; border-radius: 8px; border: 1px solid #444; text-align: center; }
-        .val { font-size: 18px; font-weight: bold; color: var(--accent); }
-        .lbl { font-size: 10px; color: #888; text-transform: uppercase; }
+        /* 主畫面 */
+        #stage { flex: 1; position: relative; background: #111; display: flex; justify-content: center; align-items: center; }
+        video { position: absolute; width: 100%; height: 100%; object-fit: contain; pointer-events: none; opacity: 0; }
+        canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; }
 
-        /* 影片進度條 (僅在影片模式顯示) */
+        /* 影片進度控制 */
         #timeline-container {
-            position: absolute; bottom: 95px; left: 15px; right: 15px;
-            height: 20px; z-index: 60; display: none; align-items: center;
+            position: absolute; bottom: 85px; left: 10px; right: 10px;
+            height: 30px; z-index: 50; display: none; align-items: center; gap: 10px;
         }
-        #timeline-bg { width: 100%; height: 8px; background: rgba(255,255,255,0.3); border-radius: 4px; position: relative; }
-        #timeline-fill { width: 0%; height: 100%; background: var(--accent); border-radius: 4px; }
+        #timeline-bg { flex: 1; height: 10px; background: #333; border-radius: 5px; position: relative; }
+        #timeline-fill { width: 0%; height: 100%; background: var(--accent); border-radius: 5px; }
+        #force-btn {
+            background: var(--err); color: #fff; border: none; padding: 5px 10px; 
+            border-radius: 4px; font-size: 10px; font-weight: bold; white-space: nowrap;
+        }
 
         /* 底部控制列 */
         #controls {
-            height: 85px; background: #111; display: flex; gap: 8px; 
-            padding: 10px; align-items: center; justify-content: center;
-            border-top: 1px solid #333; z-index: 50;
+            height: 70px; background: #111; display: flex; gap: 5px; 
+            padding: 5px; align-items: center; border-top: 1px solid #333;
         }
-        /* 按鈕樣式優化 */
         button, label {
-            flex: 1; height: 55px; border: none; border-radius: 8px;
-            background: var(--btn-bg); color: #fff; font-size: 11px; font-weight: bold;
+            flex: 1; height: 50px; border: 1px solid #333; border-radius: 6px;
+            background: #222; color: #ccc; font-size: 11px; font-weight: bold;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            cursor: pointer; transition: 0.2s; -webkit-tap-highlight-color: transparent;
         }
-        button:active, label:active { background: var(--accent); color: #000; transform: scale(0.95); }
-        .btn-icon { font-size: 20px; margin-bottom: 4px; }
+        .primary { border-color: var(--accent); color: var(--accent); background: rgba(255, 215, 0, 0.1); }
         
-        /* 特別強調匯入按鈕 */
-        .primary-btn { background: #2c3e50; border: 1px solid var(--accent); color: var(--accent); }
-        
-        /* 啟動遮罩 */
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.95); z-index: 200;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background: rgba(0,0,0,0.9); z-index: 300;
+            display: flex; justify-content: center; align-items: center;
         }
-        #start-btn {
-            height: auto; width: auto; padding: 20px 50px; font-size: 22px; 
-            background: var(--accent); color: #000; border-radius: 50px;
-        }
+        #start-btn { padding: 15px 40px; font-size: 20px; background: var(--accent); color: #000; border-radius: 30px; border:none;}
     </style>
 </head>
 <body>
 
-    <div id="console-log">系統初始化...<br></div>
+    <div id="overlay"><button id="start-btn" onclick="initSystem()">🛠️ 啟動診斷模式</button></div>
 
-    <div id="overlay">
-        <button id="start-btn" onclick="initSystem()">🚀 啟動系統</button>
-        <p style="color:#888; margin-top:15px; font-size:12px;">點擊後請選擇匯入影片或開啟相機</p>
+    <div id="console-log">
+        <div>[SYSTEM] 等待使用者啟動...</div>
     </div>
 
     <div id="stage">
-        <video id="video" playsinline muted webkit-playsinline></video>
+        <video id="video" playsinline muted webkit-playsinline crossorigin="anonymous"></video>
         <canvas id="canvas"></canvas>
         
-        <div id="hud">
-            <div class="card"><div class="val" id="ui-time">00:00</div><div class="lbl">Time</div></div>
-            <div class="card"><div class="val" id="ui-fps">IDLE</div><div class="lbl">Status</div></div>
-            <div class="card"><div class="val" id="ui-knee">0°</div><div class="lbl">Knee Angle</div></div>
-            <div class="card"><div class="val" id="ui-hip">0°</div><div class="lbl">Hip Angle</div></div>
-        </div>
-
         <div id="timeline-container">
-            <div id="timeline-bg" onclick="seekVideo(event)">
-                <div id="timeline-fill"></div>
-            </div>
+            <button id="force-btn" onclick="forceRender()">⚡ 強制重繪</button>
+            <div id="timeline-bg" onclick="seekVideo(event)"><div id="timeline-fill"></div></div>
         </div>
     </div>
 
     <div id="controls">
-        <label for="file-in" class="primary-btn"><span class="btn-icon">📂</span>匯入影片</label>
-        <button onclick="startCamera('user')"><span class="btn-icon">📷</span>前鏡頭</button>
-        <button onclick="startCamera('environment')"><span class="btn-icon">📸</span>後鏡頭</button>
-        <button onclick="connectBLE()"><span class="btn-icon">❤️</span>藍牙</button>
-        <button onclick="exportCSV()"><span class="btn-icon">💾</span>存檔</button>
+        <label for="file-in" class="primary">📂 1.匯入影片</label>
+        <button onclick="startCamera()">📷 2.測試相機</button>
+        <button onclick="exportLogs()">📋 複製 Log</button>
     </div>
     
     <input type="file" id="file-in" accept="video/*" style="display:none">
 
 <script>
-    // --- 變數 ---
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const logger = document.getElementById('console-log');
     
     let pose = null;
-    let activeStream = null;
-    let animationId = null;
-    let isProcessing = false;
     let isVideoMode = false;
-    let dataLog = [["Timestamp", "HR", "Knee", "Hip", "Phase"]];
-    let currentHR = 0;
+    let isProcessing = false;
+    let frameId = null;
 
-    // --- Log 工具 ---
-    function log(msg) {
-        const t = new Date().toLocaleTimeString('en-US', {hour12:false});
-        logger.innerHTML = `[${t}] ${msg}<br>` + logger.innerHTML;
-        console.log(msg);
+    // --- 強化的 Log 系統 ---
+    function log(msg, type='info') {
+        const div = document.createElement('div');
+        const ts = new Date().toLocaleTimeString('en-US', {hour12: false}) + "." + new Date().getMilliseconds();
+        div.innerHTML = `[${ts}] ${msg}`;
+        div.className = `log-${type}`;
+        logger.prepend(div); // 最新訊息在最上
+        console.log(`[${type}] ${msg}`);
     }
 
-    // --- 1. 系統初始化 (不自動開鏡頭) ---
+    // --- 1. 系統初始化 ---
     async function initSystem() {
         document.getElementById('overlay').style.display = 'none';
-        log("使用者已授權互動");
+        log("使用者觸發啟動，開始載入模型...", "warn");
         
         try {
-            log("載入 AI 模型中...");
             pose = new Pose({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
             });
-            
-            pose.setOptions({
-                modelComplexity: 1, 
-                smoothLandmarks: true,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-
-            pose.onResults(onPoseResults);
+            pose.setOptions({ modelComplexity: 1, smoothLandmarks: true });
+            pose.onResults(onResults);
             await pose.initialize();
-            
-            log("✅ 系統就緒！請點擊下方按鈕開始");
-            document.getElementById('ui-fps').innerText = "READY";
-            
+            log("✅ MediaPipe 模型載入成功 (Ready)", "ok");
         } catch (e) {
-            log("❌ 初始化失敗: " + e.message);
+            log("❌ 模型崩潰: " + e.message, "err");
         }
     }
 
-    // --- 2. 處理 MediaPipe 結果 ---
-    function onPoseResults(results) {
-        // 校正畫布
-        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+    // --- 2. 影片事件監聽 (診斷核心) ---
+    // 綁定所有可能的影片錯誤事件
+    video.addEventListener('error', (e) => {
+        const err = video.error;
+        log(`❌ 影片錯誤代碼: ${err.code}, 訊息: ${err.message}`, "err");
+        log("提示: Code 3 = 解碼錯誤 (iPhone 不支援此格式)", "info");
+    });
+    video.addEventListener('stalled', () => log("⚠️ 影片停滯 (Stalled) - 數據讀取緩慢", "warn"));
+    video.addEventListener('waiting', () => log("⏳ 等待數據 (Waiting)...", "info"));
+    video.addEventListener('loadedmetadata', () => {
+        log(`ℹ️ 元數據載入: ${video.videoWidth}x${video.videoHeight}, 長度: ${video.duration}s`, "ok");
+    });
+    video.addEventListener('loadeddata', () => {
+        log("✅ 首幀資料已載入 (loadeddata)，準備播放", "ok");
+        attemptPlay();
+    });
+    video.addEventListener('canplay', () => log("ℹ️ 瀏覽器回報：可以開始播放 (canplay)", "info"));
+
+    // --- 3. 匯入邏輯 ---
+    document.getElementById('file-in').onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        log(`📂 讀取檔案: ${file.name}`, "warn");
+        log(`ℹ️ 類型: ${file.type}, 大小: ${(file.size/1024/1024).toFixed(2)} MB`, "info");
+
+        // 檢查格式
+        if (file.type.indexOf('video') === -1) {
+            log("❌錯誤：這不是影片檔！", "err");
+            return;
+        }
+
+        isVideoMode = true;
+        stopAll();
+        document.getElementById('timeline-container').style.display = 'flex';
+
+        const url = URL.createObjectURL(file);
+        log(`🔗 Blob URL 已建立: ${url}`, "info");
+        
+        video.src = null;
+        video.src = url;
+        video.load(); // 強制觸發載入
+    };
+
+    function attemptPlay() {
+        const playPromise = video.play();
+        
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                log("▶️ 播放 Promise 成功Resolved", "ok");
+                isProcessing = true;
+                processLoop();
+            }).catch(error => {
+                log(`❌ 播放被瀏覽器阻擋: ${error}`, "err");
+                log("提示: 請嘗試點擊『強制重繪』按鈕", "warn");
+            });
+        }
+    }
+
+    // --- 4. 分析循環 ---
+    async function processLoop() {
+        if (!isProcessing) return;
+        
+        if (video.paused || video.ended) {
+            // 暫停時不分析，節省資源
+            frameId = requestAnimationFrame(processLoop);
+            return;
+        }
+
+        try {
+            await pose.send({image: video});
+            
+            // 更新進度條
+            if (isVideoMode && video.duration) {
+                const pct = (video.currentTime / video.duration) * 100;
+                document.getElementById('timeline-fill').style.width = pct + '%';
+            }
+        } catch (e) {
+            log("⚠️ 分析循環報錯 (忽略): " + e.message, "warn");
+        }
+        
+        frameId = requestAnimationFrame(processLoop);
+    }
+
+    function onResults(results) {
+        // 如果能進到這裡，代表 AI 有在運作
+        if (canvas.width !== video.videoWidth) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
         }
@@ -176,162 +223,64 @@
         ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
         if (results.poseLandmarks) {
-            drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 3});
-            
-            const lm = results.poseLandmarks;
-            const knee = getAngle(lm[23], lm[25], lm[27]);
-            const hip = getAngle(lm[11], lm[23], lm[25]);
-
-            // UI 更新
-            document.getElementById('ui-knee').innerText = knee + "°";
-            document.getElementById('ui-hip').innerText = hip + "°";
-            
-            let phase = "DRIVE";
-            if (knee < 85) phase = "CATCH"; else if (knee > 155) phase = "FINISH";
-            document.getElementById('ui-fps').innerText = phase;
-
-            // 影片時間更新
-            if (isVideoMode) {
-                const pct = (video.currentTime / video.duration) * 100;
-                document.getElementById('timeline-fill').style.width = pct + '%';
-                let mins = Math.floor(video.currentTime / 60);
-                let secs = Math.floor(video.currentTime % 60);
-                document.getElementById('ui-time').innerText = `${mins}:${secs.toString().padStart(2,'0')}`;
-            }
-
-            // 記錄
-            const ts = isVideoMode ? video.currentTime.toFixed(2) : new Date().toLocaleTimeString();
-            dataLog.push([ts, currentHR, knee, hip, phase]);
+            drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+            drawLandmarks(ctx, results.poseLandmarks, {color: '#FF0000', lineWidth: 1});
         }
         ctx.restore();
     }
 
-    function getAngle(a, b, c) {
-        let ang = Math.abs((Math.atan2(c.y-b.y, c.x-b.x) - Math.atan2(a.y-b.y, a.x-b.x)) * 180/Math.PI);
-        return Math.round(ang > 180 ? 360-ang : ang);
+    // --- 5. 救援功能 ---
+    function forceRender() {
+        log("⚡ 使用者觸發強制重繪", "warn");
+        if (video.paused) {
+            log("影片處於暫停狀態，嘗試播放...", "info");
+            video.play();
+        }
+        isProcessing = true;
+        processLoop();
     }
 
-    // --- 3. 匯入影片 (優先級高) ---
-    document.getElementById('file-in').onchange = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        log(`匯入影片: ${file.name}`);
-        stopAll(); // 關閉所有之前的狀態
-        isVideoMode = true;
-        
-        // 顯示影片進度條，取消鏡像
-        document.getElementById('timeline-container').style.display = 'flex';
-        canvas.classList.remove('mirrored'); // 影片不鏡像
-
-        const url = URL.createObjectURL(file);
-        video.srcObject = null;
-        video.src = url;
-        
-        video.onloadeddata = () => {
-            log("影片載入完成，開始分析...");
-            video.play();
-            isProcessing = true;
-            processLoop();
-        };
-    };
-
-    // --- 4. 啟動相機 (手動觸發) ---
-    async function startCamera(facingMode) {
-        log(`正在開啟 ${facingMode === 'user' ? '前' : '後'} 鏡頭...`);
+    function startCamera() {
+        log("切換至相機模式...", "warn");
         stopAll();
         isVideoMode = false;
-
-        // 隱藏進度條，相機模式開啟鏡像(僅前鏡頭)
         document.getElementById('timeline-container').style.display = 'none';
-        if (facingMode === 'user') canvas.classList.add('mirrored');
-        else canvas.classList.remove('mirrored');
 
-        const constraints = {
-            video: {
-                facingMode: facingMode,
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            },
-            audio: false
-        };
-
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            activeStream = stream;
-            video.srcObject = stream;
-            
-            video.onloadedmetadata = () => {
-                log("相機影像已獲取");
-                video.play();
-                isProcessing = true;
-                processLoop();
-            };
-        } catch (err) {
-            log("❌ 無法開啟相機: " + err.message);
-            alert("請檢查瀏覽器相機權限");
-        }
-    }
-
-    // --- 5. 核心循環 ---
-    async function processLoop() {
-        if (!isProcessing) return;
-        
-        if (video.videoWidth > 0 && !video.paused && !video.ended) {
-            try {
-                await pose.send({image: video});
-            } catch (e) {
-                // 忽略偶發的 frame drop
-            }
-        }
-        animationId = requestAnimationFrame(processLoop);
+        navigator.mediaDevices.getUserMedia({video: {facingMode: 'user', width: 640}})
+            .then(stream => {
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    isProcessing = true;
+                    processLoop();
+                    log("📷 相機串流已啟動", "ok");
+                };
+            })
+            .catch(err => log("❌ 相機權限錯誤: " + err.message, "err"));
     }
 
     function stopAll() {
         isProcessing = false;
-        if (activeStream) {
-            activeStream.getTracks().forEach(track => track.stop());
-            activeStream = null;
-        }
-        if (animationId) cancelAnimationFrame(animationId);
+        if (frameId) cancelAnimationFrame(frameId);
         video.pause();
+        if (video.srcObject) {
+            video.srcObject.getTracks().forEach(t => t.stop());
+            video.srcObject = null;
+        }
         video.src = "";
-        video.srcObject = null;
     }
-
-    // --- 6. 工具功能 ---
     
-    // 影片跳轉
     function seekVideo(e) {
-        if (!isVideoMode || !video.duration) return;
+        if (!video.duration) return;
         const rect = e.currentTarget.getBoundingClientRect();
-        const pct = (e.clientX - rect.left) / rect.width;
-        video.currentTime = pct * video.duration;
-        log(`跳轉至: ${Math.round(video.currentTime)}s`);
+        const pos = (e.clientX - rect.left) / rect.width;
+        video.currentTime = pos * video.duration;
+        log(`⏩ 跳轉至 ${(pos*100).toFixed(0)}%`, "info");
     }
 
-    // 藍牙
-    async function connectBLE() {
-        if (!navigator.bluetooth) return alert("請使用 Bluefy 瀏覽器");
-        try {
-            const dev = await navigator.bluetooth.requestDevice({ filters: [{ services: ['heart_rate'] }] });
-            const server = await dev.gatt.connect();
-            const char = await (await server.getPrimaryService('heart_rate')).getCharacteristic('heart_rate_measurement');
-            await char.startNotifications();
-            char.addEventListener('characteristicvaluechanged', (e) => {
-                currentHR = e.target.value.getUint8(1);
-                document.getElementById('ui-hr').innerText = currentHR;
-            });
-            log("藍牙已連線");
-        } catch (e) { log("藍牙失敗: " + e.message); }
-    }
-
-    function exportCSV() {
-        const csv = dataLog.map(r => r.join(",")).join("\n");
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
-        a.download = `rowing_data.csv`;
-        a.click();
+    function exportLogs() {
+        const txt = logger.innerText;
+        navigator.clipboard.writeText(txt).then(() => alert("Log 已複製到剪貼簿"));
     }
 </script>
 </body>
