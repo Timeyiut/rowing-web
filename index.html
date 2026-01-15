@@ -3,21 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Rowing Pro v7.0</title>
+    <title>Rowing Pro v7.1 (iOS Fix)</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
     <style>
-        /* --- 專業運動風格配色 --- */
         :root { 
             --bg: #000; 
-            --accent: #00E5FF; /* 科技藍 */
+            --accent: #00E5FF;
             --panel: rgba(20, 20, 20, 0.85); 
             --text-main: #fff;
             --text-sub: #aaa;
-            --phase-catch: #4CAF50; /* 綠色 */
-            --phase-finish: #FF5252; /* 紅色 */
+            --warn: #ff9800; /* 強制按鈕顏色 */
         }
 
         body { margin: 0; background: var(--bg); color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
@@ -28,25 +26,22 @@
             display: flex; justify-content: center; align-items: center; overflow: hidden;
         }
         
-        /* 堆疊層：影片在下，畫布在上 */
         video { position: absolute; width: 100%; height: 100%; object-fit: contain; opacity: 0; pointer-events: none; }
         canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; }
         .mirrored { transform: scaleX(-1); }
 
-        /* 懸浮儀表板 (HUD) */
+        /* 懸浮儀表板 */
         #hud {
             position: absolute; top: 20px; left: 15px; right: 15px;
             padding: 12px; background: var(--panel); border-radius: 16px;
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255,255,255,0.1); z-index: 10;
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
         }
         .stat-item { display: flex; flex-direction: column; align-items: center; justify-content: center; }
         .stat-val { font-size: 18px; font-weight: 800; font-family: 'SF Mono', monospace; color: var(--text-main); }
         .stat-label { font-size: 10px; color: var(--text-sub); text-transform: uppercase; margin-top: 2px; }
         
-        /* 相位指示器 (Catch/Finish) */
         #phase-pill {
             grid-column: span 4; margin-top: 8px; padding: 4px;
             background: rgba(255,255,255,0.1); border-radius: 8px;
@@ -54,7 +49,7 @@
             color: var(--accent);
         }
 
-        /* 影片時間軸 */
+        /* 影片進度條 */
         #timeline-container {
             position: absolute; bottom: 90px; left: 20px; right: 20px;
             height: 40px; z-index: 20; display: none; align-items: center;
@@ -65,7 +60,6 @@
         #timeline-fill {
             width: 0%; height: 100%; background: var(--accent); border-radius: 3px;
         }
-        /* 時間軸拖曳球 */
         #timeline-thumb {
             width: 14px; height: 14px; background: #fff; border-radius: 50%;
             position: absolute; top: 50%; transform: translate(-50%, -50%); left: 0%;
@@ -76,31 +70,33 @@
         #controls {
             height: 80px; background: #0a0a0a; border-top: 1px solid #222;
             display: flex; justify-content: space-around; align-items: center;
-            padding-bottom: env(safe-area-inset-bottom); z-index: 30;
+            padding-bottom: env(safe-area-inset-bottom); z-index: 30; gap: 5px; padding-left: 5px; padding-right: 5px;
         }
         .btn {
             background: none; border: none; color: #888; cursor: pointer;
             display: flex; flex-direction: column; align-items: center; gap: 4px;
-            font-size: 10px; width: 60px;
+            font-size: 10px; width: 55px;
         }
         .btn-icon {
-            width: 44px; height: 44px; background: #222; border-radius: 22px;
-            display: flex; justify-content: center; align-items: center; font-size: 20px;
-            transition: 0.2s;
+            width: 40px; height: 40px; background: #222; border-radius: 20px;
+            display: flex; justify-content: center; align-items: center; font-size: 18px;
+            transition: 0.2s; border: 1px solid #333;
         }
-        .btn.active .btn-icon { background: var(--accent); color: #000; box-shadow: 0 0 15px rgba(0, 229, 255, 0.3); }
-        .btn:active .btn-icon { transform: scale(0.9); }
+        .btn.active .btn-icon { background: var(--accent); color: #000; box-shadow: 0 0 10px rgba(0, 229, 255, 0.3); }
+        
+        /* 強制執行按鈕樣式 */
+        .btn-force .btn-icon { border-color: var(--warn); color: var(--warn); }
+        .btn-force:active .btn-icon { background: var(--warn); color: #000; }
 
-        /* 啟動遮罩 (iOS 必需) */
+        /* 啟動遮罩 */
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); z-index: 100;
+            background: rgba(0,0,0,0.9); z-index: 100;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
         }
         #start-btn {
             padding: 18px 40px; border-radius: 40px; border: none;
             background: var(--accent); color: #000; font-size: 18px; font-weight: bold;
-            box-shadow: 0 0 20px rgba(0,229,255,0.4);
         }
         
         #file-input { display: none; }
@@ -110,7 +106,6 @@
 
     <div id="overlay">
         <button id="start-btn" onclick="initSystem()">🚀 啟動分析系統</button>
-        <div style="margin-top: 10px; color: #888; font-size: 12px;">v7.0 Stable Release</div>
     </div>
 
     <div id="stage">
@@ -118,22 +113,10 @@
         <canvas id="canvas"></canvas>
 
         <div id="hud">
-            <div class="stat-item">
-                <div class="stat-val" id="val-time">00:00</div>
-                <div class="stat-label">TIME</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-val" id="val-hr" style="color: #FF5252;">--</div>
-                <div class="stat-label">BPM</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-val" id="val-knee">0°</div>
-                <div class="stat-label">KNEE</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-val" id="val-hip">0°</div>
-                <div class="stat-label">HIP</div>
-            </div>
+            <div class="stat-item"><div class="stat-val" id="val-time">00:00</div><div class="stat-label">TIME</div></div>
+            <div class="stat-item"><div class="stat-val" id="val-hr" style="color: #FF5252;">--</div><div class="stat-label">BPM</div></div>
+            <div class="stat-item"><div class="stat-val" id="val-knee">0°</div><div class="stat-label">KNEE</div></div>
+            <div class="stat-item"><div class="stat-val" id="val-hip">0°</div><div class="stat-label">HIP</div></div>
             <div id="phase-pill">SYSTEM READY</div>
         </div>
 
@@ -146,9 +129,14 @@
     </div>
 
     <div id="controls">
+        <button class="btn btn-force" onclick="forceRender()">
+            <div class="btn-icon">⚡</div>
+            <span>強制執行</span>
+        </button>
+
         <label for="file-input" class="btn active">
             <div class="btn-icon">📂</div>
-            <span>匯入影片</span>
+            <span>匯入</span>
         </label>
         <button class="btn" onclick="startCamera()">
             <div class="btn-icon">📷</div>
@@ -183,35 +171,21 @@
     let dataLog = [["Timestamp", "HR", "Knee", "Hip", "Phase"]];
     let animationId;
 
-    // --- 1. 系統初始化 ---
     async function initSystem() {
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('phase-pill').innerText = "LOADING MODEL...";
         
         try {
-            pose = new Pose({
-                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-            });
-            // 使用最平衡的設定
-            pose.setOptions({
-                modelComplexity: 1,
-                smoothLandmarks: true,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
+            pose = new Pose({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
+            pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
             pose.onResults(onResults);
             await pose.initialize();
-            
             document.getElementById('phase-pill').innerText = "WAITING FOR INPUT";
-        } catch (e) {
-            alert("模型載入失敗，請重新整理");
-        }
+        } catch (e) { alert("初始化失敗"); }
     }
 
-    // --- 2. 核心分析邏輯 ---
     function onResults(results) {
-        // 確保畫布尺寸正確
-        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        if (canvas.width !== video.videoWidth) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
         }
@@ -221,47 +195,26 @@
         ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
         if (results.poseLandmarks) {
-            // 繪製骨架
             drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00E5FF', lineWidth: 3});
-            drawLandmarks(ctx, results.poseLandmarks, {color: '#FFF', lineWidth: 1});
-
-            // 計算角度
+            
             const lm = results.poseLandmarks;
             const knee = getAngle(lm[23], lm[25], lm[27]);
             const hip = getAngle(lm[11], lm[23], lm[25]);
 
-            // 更新 UI 數據
             document.getElementById('val-knee').innerText = knee + "°";
             document.getElementById('val-hip').innerText = hip + "°";
 
-            // 相位判斷
             let phase = "DRIVE";
             const pill = document.getElementById('phase-pill');
-            
-            if (knee < 85) {
-                phase = "CATCH";
-                pill.style.color = "var(--phase-catch)";
-            } else if (knee > 155) {
-                phase = "FINISH";
-                pill.style.color = "var(--phase-finish)";
-            } else {
-                pill.style.color = "var(--accent)";
-            }
+            if (knee < 85) { phase = "CATCH"; pill.style.color = "#4CAF50"; }
+            else if (knee > 155) { phase = "FINISH"; pill.style.color = "#FF5252"; }
+            else { pill.style.color = "#00E5FF"; }
             pill.innerText = phase;
 
-            // 更新時間與進度條 (若是影片模式)
-            const now = new Date();
-            let ts;
-            
-            if (isVideoMode) {
-                ts = video.currentTime.toFixed(2);
-                updateTimeline();
-            } else {
-                ts = now.toLocaleTimeString();
-            }
+            if (isVideoMode) updateTimeline();
+            const ts = isVideoMode ? video.currentTime.toFixed(2) : new Date().toLocaleTimeString();
             document.getElementById('val-time').innerText = isVideoMode ? formatTime(video.currentTime) : ts.split(' ')[0];
-
-            // 存入 Log
+            
             dataLog.push([ts, currentHR, knee, hip, phase]);
         }
         ctx.restore();
@@ -272,7 +225,7 @@
         return Math.round(ang > 180 ? 360-ang : ang);
     }
 
-    // --- 3. 匯入影片 (v6.0 修復版邏輯) ---
+    // --- 3. 匯入影片 (修正阻擋問題) ---
     document.getElementById('file-input').onchange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -285,53 +238,60 @@
         const url = URL.createObjectURL(file);
         video.src = url;
         
-        // 關鍵：確保 iOS 載入完成才播放
         video.onloadeddata = () => {
-            video.play().then(() => {
-                isProcessing = true;
-                processLoop();
-            }).catch(err => {
-                alert("播放被攔截，請點擊畫面任意處");
-            });
+            // 嘗試自動播放
+            const playPromise = video.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    // 自動播放成功
+                    isProcessing = true;
+                    processLoop();
+                }).catch(error => {
+                    // 自動播放失敗 (NotAllowedError)
+                    console.log("Auto-play prevented");
+                    document.getElementById('phase-pill').innerText = "⚠️ 請點擊左下角⚡按鈕";
+                    document.getElementById('phase-pill').style.color = "#FF9800";
+                    alert("iOS 阻擋了自動播放。\n\n請點擊左下角的「⚡ 強制執行」按鈕來開始分析。");
+                });
+            }
         };
     };
 
-    // --- 4. 相機功能 ---
+    // --- 新增：強制重繪功能 ---
+    function forceRender() {
+        if (video.paused && video.src) {
+            video.play().then(() => {
+                isProcessing = true;
+                processLoop();
+                document.getElementById('phase-pill').innerText = "FORCED START";
+            }).catch(e => alert("仍無法播放: " + e.message));
+        } else if (isProcessing === false && video.src) {
+            // 針對雖然播放但 Loop 停止的情況
+            isProcessing = true;
+            processLoop();
+        }
+    }
+
+    // --- 相機與其他功能 ---
     async function startCamera() {
         stopAll();
         isVideoMode = false;
         document.getElementById('timeline-container').style.display = 'none';
-        
-        if (facingMode === 'user') canvas.classList.add('mirrored');
-        else canvas.classList.remove('mirrored');
+        if (facingMode === 'user') canvas.classList.add('mirrored'); else canvas.classList.remove('mirrored');
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: facingMode, width: 1280, height: 720 }
-            });
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode, width: 1280, height: 720 } });
             video.srcObject = stream;
-            video.onloadedmetadata = () => {
-                video.play();
-                isProcessing = true;
-                processLoop();
-            };
-        } catch (e) {
-            alert("相機權限錯誤: " + e.message);
-        }
+            video.onloadedmetadata = () => { video.play(); isProcessing = true; processLoop(); };
+        } catch (e) { alert("相機權限錯誤"); }
     }
 
-    function toggleFacing() {
-        facingMode = (facingMode === 'user') ? 'environment' : 'user';
-        if (!isVideoMode) startCamera();
-    }
+    function toggleFacing() { facingMode = (facingMode === 'user') ? 'environment' : 'user'; if (!isVideoMode) startCamera(); }
 
-    // --- 5. 循環引擎 ---
     function processLoop() {
         if (!isProcessing) return;
-        
-        if (!video.paused && !video.ended) {
-            pose.send({image: video});
-        }
+        if (!video.paused && !video.ended) pose.send({image: video});
         animationId = requestAnimationFrame(processLoop);
     }
 
@@ -339,14 +299,11 @@
         isProcessing = false;
         if (animationId) cancelAnimationFrame(animationId);
         video.pause();
-        if (video.srcObject) {
-            video.srcObject.getTracks().forEach(t => t.stop());
-            video.srcObject = null;
-        }
+        if (video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
         video.src = "";
     }
 
-    // --- 6. 介面互動 ---
+    // --- 工具函式 ---
     function updateTimeline() {
         if (!video.duration) return;
         const pct = (video.currentTime / video.duration) * 100;
@@ -357,14 +314,11 @@
     function seekVideo(e) {
         if (!isVideoMode || !video.duration) return;
         const rect = document.getElementById('timeline-track').getBoundingClientRect();
-        const pct = (e.clientX - rect.left) / rect.width;
-        video.currentTime = pct * video.duration;
+        video.currentTime = ((e.clientX - rect.left) / rect.width) * video.duration;
     }
 
     function formatTime(s) {
-        const m = Math.floor(s / 60);
-        const sec = Math.floor(s % 60);
-        return `${m}:${sec.toString().padStart(2, '0')}`;
+        return `${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}`;
     }
 
     async function connectBLE() {
@@ -378,14 +332,13 @@
                 currentHR = e.target.value.getUint8(1);
                 document.getElementById('val-hr').innerText = currentHR;
             });
-        } catch (e) { console.log(e); }
+        } catch (e) {}
     }
 
     function exportData() {
-        const csv = dataLog.map(r => r.join(",")).join("\n");
         const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
-        a.download = `rowing_data_${Date.now()}.csv`;
+        a.href = URL.createObjectURL(new Blob([dataLog.map(r => r.join(",")).join("\n")], {type: 'text/csv'}));
+        a.download = `rowing_${Date.now()}.csv`;
         a.click();
     }
 </script>
