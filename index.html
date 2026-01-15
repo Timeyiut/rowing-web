@@ -3,90 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Rowing Pro v7.1 (iOS Fix)</title>
+    <title>Rowing Trajectory Analysis v8.0</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
     <style>
-        :root { 
-            --bg: #000; 
-            --accent: #00E5FF;
-            --panel: rgba(20, 20, 20, 0.85); 
-            --text-main: #fff;
-            --text-sub: #aaa;
-            --warn: #ff9800; /* 強制按鈕顏色 */
-        }
-
-        body { margin: 0; background: var(--bg); color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+        :root { --bg: #121212; --panel: rgba(30, 30, 30, 0.9); --accent: #00E5FF; }
+        body { margin: 0; background: var(--bg); color: #fff; font-family: monospace; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
 
         /* 主舞台 */
-        #stage { 
-            flex: 1; position: relative; background: #111; 
-            display: flex; justify-content: center; align-items: center; overflow: hidden;
-        }
-        
+        #stage { flex: 1; position: relative; background: #000; display: flex; justify-content: center; align-items: center; }
         video { position: absolute; width: 100%; height: 100%; object-fit: contain; opacity: 0; pointer-events: none; }
         canvas { position: absolute; width: 100%; height: 100%; object-fit: contain; }
         .mirrored { transform: scaleX(-1); }
 
-        /* 懸浮儀表板 */
+        /* 數據儀表板 */
         #hud {
-            position: absolute; top: 20px; left: 15px; right: 15px;
-            padding: 12px; background: var(--panel); border-radius: 16px;
-            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255,255,255,0.1); z-index: 10;
-            display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+            position: absolute; top: 10px; left: 10px; padding: 10px;
+            background: var(--panel); border-radius: 8px; border-left: 4px solid var(--accent);
+            pointer-events: none; z-index: 10;
         }
-        .stat-item { display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .stat-val { font-size: 18px; font-weight: 800; font-family: 'SF Mono', monospace; color: var(--text-main); }
-        .stat-label { font-size: 10px; color: var(--text-sub); text-transform: uppercase; margin-top: 2px; }
+        .row { display: flex; gap: 15px; margin-bottom: 5px; font-size: 14px; }
+        .label { color: #aaa; }
+        .val { font-weight: bold; font-size: 16px; }
         
-        #phase-pill {
-            grid-column: span 4; margin-top: 8px; padding: 4px;
-            background: rgba(255,255,255,0.1); border-radius: 8px;
-            text-align: center; font-size: 12px; font-weight: bold; letter-spacing: 1px;
-            color: var(--accent);
+        /* 狀態指示燈 */
+        #status-pill {
+            display: inline-block; padding: 4px 8px; border-radius: 4px; 
+            font-weight: bold; font-size: 12px; margin-top: 5px;
+            background: #333; color: #fff; width: 100%; text-align: center;
         }
 
-        /* 影片進度條 */
-        #timeline-container {
-            position: absolute; bottom: 90px; left: 20px; right: 20px;
-            height: 40px; z-index: 20; display: none; align-items: center;
-        }
-        #timeline-track {
-            width: 100%; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; position: relative;
-        }
-        #timeline-fill {
-            width: 0%; height: 100%; background: var(--accent); border-radius: 3px;
-        }
-        #timeline-thumb {
-            width: 14px; height: 14px; background: #fff; border-radius: 50%;
-            position: absolute; top: 50%; transform: translate(-50%, -50%); left: 0%;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-        }
-
-        /* 底部控制列 */
+        /* 底部控制 */
         #controls {
-            height: 80px; background: #0a0a0a; border-top: 1px solid #222;
-            display: flex; justify-content: space-around; align-items: center;
-            padding-bottom: env(safe-area-inset-bottom); z-index: 30; gap: 5px; padding-left: 5px; padding-right: 5px;
+            height: 70px; background: #1e1e1e; border-top: 1px solid #333;
+            display: flex; gap: 10px; padding: 10px; align-items: center; justify-content: center; z-index: 20;
         }
-        .btn {
-            background: none; border: none; color: #888; cursor: pointer;
-            display: flex; flex-direction: column; align-items: center; gap: 4px;
-            font-size: 10px; width: 55px;
+        button, label {
+            flex: 1; height: 100%; border: none; border-radius: 6px;
+            background: #333; color: #ccc; font-weight: bold; font-size: 12px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer;
         }
-        .btn-icon {
-            width: 40px; height: 40px; background: #222; border-radius: 20px;
-            display: flex; justify-content: center; align-items: center; font-size: 18px;
-            transition: 0.2s; border: 1px solid #333;
-        }
-        .btn.active .btn-icon { background: var(--accent); color: #000; box-shadow: 0 0 10px rgba(0, 229, 255, 0.3); }
-        
-        /* 強制執行按鈕樣式 */
-        .btn-force .btn-icon { border-color: var(--warn); color: var(--warn); }
-        .btn-force:active .btn-icon { background: var(--warn); color: #000; }
+        .active { background: var(--accent); color: #000; }
+        .btn-icon { font-size: 18px; margin-bottom: 2px; }
 
         /* 啟動遮罩 */
         #overlay {
@@ -94,10 +55,7 @@
             background: rgba(0,0,0,0.9); z-index: 100;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
         }
-        #start-btn {
-            padding: 18px 40px; border-radius: 40px; border: none;
-            background: var(--accent); color: #000; font-size: 18px; font-weight: bold;
-        }
+        #start-btn { flex: 0; height: 50px; width: 200px; font-size: 18px; background: var(--accent); color: #000; border-radius: 25px; }
         
         #file-input { display: none; }
     </style>
@@ -105,7 +63,7 @@
 <body>
 
     <div id="overlay">
-        <button id="start-btn" onclick="initSystem()">🚀 啟動分析系統</button>
+        <button id="start-btn" onclick="initSystem()">🚀 啟動軌跡分析</button>
     </div>
 
     <div id="stage">
@@ -113,46 +71,29 @@
         <canvas id="canvas"></canvas>
 
         <div id="hud">
-            <div class="stat-item"><div class="stat-val" id="val-time">00:00</div><div class="stat-label">TIME</div></div>
-            <div class="stat-item"><div class="stat-val" id="val-hr" style="color: #FF5252;">--</div><div class="stat-label">BPM</div></div>
-            <div class="stat-item"><div class="stat-val" id="val-knee">0°</div><div class="stat-label">KNEE</div></div>
-            <div class="stat-item"><div class="stat-val" id="val-hip">0°</div><div class="stat-label">HIP</div></div>
-            <div id="phase-pill">SYSTEM READY</div>
-        </div>
-
-        <div id="timeline-container">
-            <div id="timeline-track" onclick="seekVideo(event)">
-                <div id="timeline-fill"></div>
-                <div id="timeline-thumb"></div>
+            <div class="row"><span class="label">Phase:</span> <span id="val-phase" class="val">--</span></div>
+            <div class="row"><span class="label">Knee:</span> <span id="val-knee" class="val">0°</span></div>
+            <div class="row"><span class="label">Elbow:</span> <span id="val-elbow" class="val">0°</span></div>
+            <div id="status-pill">SYSTEM READY</div>
+            <div style="margin-top:5px; font-size:10px; color:#666;">
+                <span style="color:#FF3D00">●</span> Pull (Drive) 
+                <span style="color:#00E676; margin-left:5px;">●</span> Return (Recovery)
             </div>
         </div>
     </div>
 
     <div id="controls">
-        <button class="btn btn-force" onclick="forceRender()">
-            <div class="btn-icon">⚡</div>
-            <span>強制執行</span>
+        <button class="btn-force" onclick="forceRender()">
+            <div class="btn-icon">⚡</div>強制執行
         </button>
-
-        <label for="file-input" class="btn active">
-            <div class="btn-icon">📂</div>
-            <span>匯入</span>
+        <label for="file-input" class="active">
+            <div class="btn-icon">📂</div>匯入影片
         </label>
-        <button class="btn" onclick="startCamera()">
-            <div class="btn-icon">📷</div>
-            <span>相機</span>
+        <button onclick="startCamera()">
+            <div class="btn-icon">📷</div>相機
         </button>
-        <button class="btn" onclick="toggleFacing()">
-            <div class="btn-icon">🔄</div>
-            <span>翻轉</span>
-        </button>
-        <button class="btn" onclick="connectBLE()">
-            <div class="btn-icon">❤️</div>
-            <span>藍牙</span>
-        </button>
-        <button class="btn" onclick="exportData()">
-            <div class="btn-icon">💾</div>
-            <span>存檔</span>
+        <button onclick="clearTrails()">
+            <div class="btn-icon">🗑️</div>清除軌跡
         </button>
     </div>
 
@@ -164,130 +105,238 @@
     const ctx = canvas.getContext('2d');
     
     let pose = null;
-    let isVideoMode = false;
     let isProcessing = false;
+    let isVideoMode = false;
     let facingMode = 'user';
-    let currentHR = 0;
-    let dataLog = [["Timestamp", "HR", "Knee", "Hip", "Phase"]];
     let animationId;
 
+    // --- 划船分析變數 ---
+    let prevKneeAngle = 0;
+    let currentPhase = "IDLE"; // 'DRIVE' or 'RECOVERY'
+    
+    // 軌跡緩衝區 (只存最近 100 點)
+    const TRAIL_LENGTH = 120;
+    let trails = {
+        knee: [],
+        elbow: [],
+        ankle: [],
+        wrist: [] // 手把位置
+    };
+
+    // --- 1. 初始化 ---
     async function initSystem() {
         document.getElementById('overlay').style.display = 'none';
-        document.getElementById('phase-pill').innerText = "LOADING MODEL...";
-        
         try {
             pose = new Pose({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
             pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
             pose.onResults(onResults);
             await pose.initialize();
-            document.getElementById('phase-pill').innerText = "WAITING FOR INPUT";
+            document.getElementById('status-pill').innerText = "WAITING FOR VIDEO";
         } catch (e) { alert("初始化失敗"); }
     }
 
+    // --- 2. 核心分析與繪圖 (OpenCV Style) ---
     function onResults(results) {
+        // 1. 準備畫布
         if (canvas.width !== video.videoWidth) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
         }
-
         ctx.save();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 繪製半透明黑底，讓軌跡更明顯
+        // ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+        // ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // 繪製影片底圖
         ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
         if (results.poseLandmarks) {
-            drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00E5FF', lineWidth: 3});
-            
             const lm = results.poseLandmarks;
-            const knee = getAngle(lm[23], lm[25], lm[27]);
-            const hip = getAngle(lm[11], lm[23], lm[25]);
+            const w = canvas.width;
+            const h = canvas.height;
 
-            document.getElementById('val-knee').innerText = knee + "°";
-            document.getElementById('val-hip').innerText = hip + "°";
-
-            let phase = "DRIVE";
-            const pill = document.getElementById('phase-pill');
-            if (knee < 85) { phase = "CATCH"; pill.style.color = "#4CAF50"; }
-            else if (knee > 155) { phase = "FINISH"; pill.style.color = "#FF5252"; }
-            else { pill.style.color = "#00E5FF"; }
-            pill.innerText = phase;
-
-            if (isVideoMode) updateTimeline();
-            const ts = isVideoMode ? video.currentTime.toFixed(2) : new Date().toLocaleTimeString();
-            document.getElementById('val-time').innerText = isVideoMode ? formatTime(video.currentTime) : ts.split(' ')[0];
+            // 2. 關鍵節點座標提取 (OpenCV Style: 25, 27, 13, 15)
+            // 使用左側或右側 (根據可見度簡單判斷，這裡預設取右側 偶數為右, 奇數為左。MediaPipe: 11左肩, 12右肩...)
+            // 為了簡化，我們取可見度較高的一側，或者預設左側(側面錄影常用)
+            // 23:左髖, 25:左膝, 27:左踝 | 11:左肩, 13:左肘, 15:左腕
             
-            dataLog.push([ts, currentHR, knee, hip, phase]);
+            // 簡單的側邊自動偵測：比較左肩和右肩的 visibility
+            const isLeft = lm[11].visibility > lm[12].visibility;
+            const offset = isLeft ? 0 : 1; 
+
+            const ankle = { x: lm[27+offset].x * w, y: lm[27+offset].y * h };
+            const knee  = { x: lm[25+offset].x * w, y: lm[25+offset].y * h };
+            const hip   = { x: lm[23+offset].x * w, y: lm[23+offset].y * h };
+            const elbow = { x: lm[13+offset].x * w, y: lm[13+offset].y * h };
+            const wrist = { x: lm[15+offset].x * w, y: lm[15+offset].y * h }; // 手把
+            const shoulder = { x: lm[11+offset].x * w, y: lm[11+offset].y * h };
+
+            // 3. 計算角度與相位判斷
+            const kneeAngle = getAngle(hip, knee, ankle);
+            const elbowAngle = getAngle(shoulder, elbow, wrist);
+            
+            // 相位邏輯：膝蓋角度變大 = Drive(推腿)，變小 = Recovery(收腿)
+            // 加入閾值避免抖動
+            if (kneeAngle > prevKneeAngle + 0.5) {
+                currentPhase = "DRIVE";
+            } else if (kneeAngle < prevKneeAngle - 0.5) {
+                currentPhase = "RECOVERY";
+            }
+            prevKneeAngle = kneeAngle;
+
+            // 4. 更新軌跡 Buffer
+            const pointData = { phase: currentPhase, ...knee }; // 存膝蓋
+            updateTrail(trails.knee, knee, currentPhase);
+            updateTrail(trails.elbow, elbow, currentPhase);
+            updateTrail(trails.ankle, ankle, currentPhase); // 踝關節通常不動，但也畫出來確認
+            updateTrail(trails.wrist, wrist, currentPhase); // 手把軌跡
+
+            // 5. 繪製軌跡 (OpenCV Style)
+            drawTrail(trails.knee);
+            drawTrail(trails.elbow);
+            drawTrail(trails.wrist); // 手把很重要
+            
+            // 6. 繪製當前骨架 (簡化版：只畫線與點)
+            drawSkeleton(ctx, [shoulder, elbow, wrist], "#FFF", 4); // 手臂
+            drawSkeleton(ctx, [shoulder, hip, knee, ankle], "#FFF", 4); // 身體與腿
+            
+            // 繪製關鍵點 (Joints)
+            drawKeypoint(ctx, knee, "#FFD700"); // 金色膝蓋
+            drawKeypoint(ctx, elbow, "#FFD700");
+            drawKeypoint(ctx, ankle, "#888");   // 灰色腳踝
+            drawKeypoint(ctx, wrist, "#00E5FF"); // 藍色手把
+
+            // 7. 更新 UI
+            updateHUD(currentPhase, kneeAngle, elbowAngle);
         }
         ctx.restore();
     }
 
-    function getAngle(a, b, c) {
-        let ang = Math.abs((Math.atan2(c.y-b.y, c.x-b.x) - Math.atan2(a.y-b.y, a.x-b.x)) * 180/Math.PI);
-        return Math.round(ang > 180 ? 360-ang : ang);
+    // --- 3. 軌跡管理系統 ---
+    function updateTrail(trailArray, point, phase) {
+        trailArray.push({ x: point.x, y: point.y, phase: phase });
+        if (trailArray.length > TRAIL_LENGTH) {
+            trailArray.shift(); // 移除最舊的點
+        }
     }
 
-    // --- 3. 匯入影片 (修正阻擋問題) ---
+    function drawTrail(trailArray) {
+        if (trailArray.length < 2) return;
+        
+        // 畫線
+        for (let i = 1; i < trailArray.length; i++) {
+            const p1 = trailArray[i-1];
+            const p2 = trailArray[i];
+            
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            
+            // 顏色邏輯：DRIVE = 紅, RECOVERY = 綠
+            if (p2.phase === "DRIVE") {
+                ctx.strokeStyle = "rgba(255, 61, 0, 0.8)"; // Red Orange
+                ctx.lineWidth = 4;
+            } else {
+                ctx.strokeStyle = "rgba(0, 230, 118, 0.6)"; // Green
+                ctx.lineWidth = 2; // 回槳線條細一點
+            }
+            ctx.stroke();
+        }
+    }
+
+    // --- 4. 繪圖輔助函式 ---
+    function drawKeypoint(ctx, p, color) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    function drawSkeleton(ctx, points, color, width) {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+        ctx.stroke();
+    }
+
+    function getAngle(p1, p2, p3) { // p2 是中間點
+        // 使用簡單的向量角度計算
+        // atan2 回傳 -PI 到 PI
+        const a1 = Math.atan2(p1.y - p2.y, p1.x - p2.x);
+        const a2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
+        let ang = Math.abs((a2 - a1) * 180 / Math.PI);
+        if (ang > 180) ang = 360 - ang;
+        return Math.round(ang);
+    }
+
+    function updateHUD(phase, knee, elbow) {
+        document.getElementById('val-phase').innerText = phase;
+        document.getElementById('val-knee').innerText = knee + "°";
+        document.getElementById('val-elbow').innerText = elbow + "°";
+        
+        const pill = document.getElementById('status-pill');
+        if (phase === "DRIVE") {
+            pill.style.background = "#FF3D00";
+            pill.innerText = "POWER PHASE (DRIVE)";
+        } else if (phase === "RECOVERY") {
+            pill.style.background = "#00E676";
+            pill.style.color = "#000";
+            pill.innerText = "RECOVERY PHASE";
+        }
+    }
+
+    function clearTrails() {
+        trails.knee = [];
+        trails.elbow = [];
+        trails.ankle = [];
+        trails.wrist = [];
+    }
+
+    // --- 5. 系統控制 (iOS 穩定版邏輯) ---
     document.getElementById('file-input').onchange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
-
         stopAll();
         isVideoMode = true;
-        document.getElementById('timeline-container').style.display = 'flex';
         canvas.classList.remove('mirrored');
-
+        
         const url = URL.createObjectURL(file);
         video.src = url;
-        
         video.onloadeddata = () => {
-            // 嘗試自動播放
-            const playPromise = video.play();
-            
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    // 自動播放成功
-                    isProcessing = true;
-                    processLoop();
-                }).catch(error => {
-                    // 自動播放失敗 (NotAllowedError)
-                    console.log("Auto-play prevented");
-                    document.getElementById('phase-pill').innerText = "⚠️ 請點擊左下角⚡按鈕";
-                    document.getElementById('phase-pill').style.color = "#FF9800";
-                    alert("iOS 阻擋了自動播放。\n\n請點擊左下角的「⚡ 強制執行」按鈕來開始分析。");
-                });
-            }
+            const p = video.play();
+            if (p) p.then(() => { isProcessing = true; processLoop(); })
+                   .catch(() => alert("請點擊強制執行"));
         };
     };
 
-    // --- 新增：強制重繪功能 ---
+    function startCamera() {
+        stopAll();
+        isVideoMode = false;
+        canvas.classList.add('mirrored');
+        navigator.mediaDevices.getUserMedia({video: {facingMode: 'user', width: 1280, height: 720}})
+            .then(s => {
+                video.srcObject = s;
+                video.onloadedmetadata = () => { video.play(); isProcessing = true; processLoop(); };
+            }).catch(e => alert("相機權限失敗"));
+    }
+
     function forceRender() {
-        if (video.paused && video.src) {
-            video.play().then(() => {
-                isProcessing = true;
-                processLoop();
-                document.getElementById('phase-pill').innerText = "FORCED START";
-            }).catch(e => alert("仍無法播放: " + e.message));
-        } else if (isProcessing === false && video.src) {
-            // 針對雖然播放但 Loop 停止的情況
+        if (video.src || video.srcObject) {
+            video.play();
             isProcessing = true;
             processLoop();
         }
     }
-
-    // --- 相機與其他功能 ---
-    async function startCamera() {
-        stopAll();
-        isVideoMode = false;
-        document.getElementById('timeline-container').style.display = 'none';
-        if (facingMode === 'user') canvas.classList.add('mirrored'); else canvas.classList.remove('mirrored');
-
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode, width: 1280, height: 720 } });
-            video.srcObject = stream;
-            video.onloadedmetadata = () => { video.play(); isProcessing = true; processLoop(); };
-        } catch (e) { alert("相機權限錯誤"); }
-    }
-
-    function toggleFacing() { facingMode = (facingMode === 'user') ? 'environment' : 'user'; if (!isVideoMode) startCamera(); }
 
     function processLoop() {
         if (!isProcessing) return;
@@ -297,49 +346,11 @@
 
     function stopAll() {
         isProcessing = false;
+        clearTrails();
         if (animationId) cancelAnimationFrame(animationId);
         video.pause();
-        if (video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
-        video.src = "";
-    }
-
-    // --- 工具函式 ---
-    function updateTimeline() {
-        if (!video.duration) return;
-        const pct = (video.currentTime / video.duration) * 100;
-        document.getElementById('timeline-fill').style.width = pct + "%";
-        document.getElementById('timeline-thumb').style.left = pct + "%";
-    }
-
-    function seekVideo(e) {
-        if (!isVideoMode || !video.duration) return;
-        const rect = document.getElementById('timeline-track').getBoundingClientRect();
-        video.currentTime = ((e.clientX - rect.left) / rect.width) * video.duration;
-    }
-
-    function formatTime(s) {
-        return `${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}`;
-    }
-
-    async function connectBLE() {
-        if (!navigator.bluetooth) return alert("iPhone 請使用 Bluefy App");
-        try {
-            const dev = await navigator.bluetooth.requestDevice({ filters: [{ services: ['heart_rate'] }] });
-            const server = await dev.gatt.connect();
-            const char = await (await server.getPrimaryService('heart_rate')).getCharacteristic('heart_rate_measurement');
-            await char.startNotifications();
-            char.addEventListener('characteristicvaluechanged', (e) => {
-                currentHR = e.target.value.getUint8(1);
-                document.getElementById('val-hr').innerText = currentHR;
-            });
-        } catch (e) {}
-    }
-
-    function exportData() {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([dataLog.map(r => r.join(",")).join("\n")], {type: 'text/csv'}));
-        a.download = `rowing_${Date.now()}.csv`;
-        a.click();
+        if (video.srcObject) { video.srcObject.getTracks().forEach(t=>t.stop()); video.srcObject=null;}
+        video.src="";
     }
 </script>
 </body>
