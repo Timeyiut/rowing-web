@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Rowing Trajectory Analysis v8.0</title>
+    <title>Rowing Motion Analysis v8.1</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
@@ -20,7 +20,7 @@
 
         /* 數據儀表板 */
         #hud {
-            position: absolute; top: 10px; left: 10px; padding: 10px;
+            position: absolute; top: 10px; left: 10px; padding: 12px;
             background: var(--panel); border-radius: 8px; border-left: 4px solid var(--accent);
             pointer-events: none; z-index: 10;
         }
@@ -28,7 +28,6 @@
         .label { color: #aaa; }
         .val { font-weight: bold; font-size: 16px; }
         
-        /* 狀態指示燈 */
         #status-pill {
             display: inline-block; padding: 4px 8px; border-radius: 4px; 
             font-weight: bold; font-size: 12px; margin-top: 5px;
@@ -46,7 +45,7 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             cursor: pointer;
         }
-        .active { background: var(--accent); color: #000; }
+        .primary { background: var(--accent); color: #000; }
         .btn-icon { font-size: 18px; margin-bottom: 2px; }
 
         /* 啟動遮罩 */
@@ -55,7 +54,7 @@
             background: rgba(0,0,0,0.9); z-index: 100;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
         }
-        #start-btn { flex: 0; height: 50px; width: 200px; font-size: 18px; background: var(--accent); color: #000; border-radius: 25px; }
+        #start-btn { flex: 0; height: 50px; width: 200px; font-size: 18px; background: var(--accent); color: #000; border-radius: 25px; border:none; }
         
         #file-input { display: none; }
     </style>
@@ -63,7 +62,7 @@
 <body>
 
     <div id="overlay">
-        <button id="start-btn" onclick="initSystem()">🚀 啟動軌跡分析</button>
+        <button id="start-btn" onclick="initSystem()">🚀 啟動姿態分析</button>
     </div>
 
     <div id="stage">
@@ -72,28 +71,25 @@
 
         <div id="hud">
             <div class="row"><span class="label">Phase:</span> <span id="val-phase" class="val">--</span></div>
-            <div class="row"><span class="label">Knee:</span> <span id="val-knee" class="val">0°</span></div>
-            <div class="row"><span class="label">Elbow:</span> <span id="val-elbow" class="val">0°</span></div>
+            <div class="row"><span class="label">Knee Angle:</span> <span id="val-knee" class="val">0°</span></div>
+            <div class="row"><span class="label">Hip Angle:</span> <span id="val-hip" class="val">0°</span></div>
+            <div class="row"><span class="label">Elbow Angle:</span> <span id="val-elbow" class="val">0°</span></div>
             <div id="status-pill">SYSTEM READY</div>
-            <div style="margin-top:5px; font-size:10px; color:#666;">
-                <span style="color:#FF3D00">●</span> Pull (Drive) 
-                <span style="color:#00E676; margin-left:5px;">●</span> Return (Recovery)
-            </div>
         </div>
     </div>
 
     <div id="controls">
-        <button class="btn-force" onclick="forceRender()">
+        <button onclick="forceRender()">
             <div class="btn-icon">⚡</div>強制執行
         </button>
-        <label for="file-input" class="active">
+        <label for="file-input" class="primary">
             <div class="btn-icon">📂</div>匯入影片
         </label>
         <button onclick="startCamera()">
-            <div class="btn-icon">📷</div>相機
+            <div class="btn-icon">📷</div>開啟相機
         </button>
-        <button onclick="clearTrails()">
-            <div class="btn-icon">🗑️</div>清除軌跡
+        <button onclick="exportCSV()">
+            <div class="btn-icon">💾</div>導出數據
         </button>
     </div>
 
@@ -110,20 +106,12 @@
     let facingMode = 'user';
     let animationId;
 
-    // --- 划船分析變數 ---
+    // 分析變數
     let prevKneeAngle = 0;
-    let currentPhase = "IDLE"; // 'DRIVE' or 'RECOVERY'
-    
-    // 軌跡緩衝區 (只存最近 100 點)
-    const TRAIL_LENGTH = 120;
-    let trails = {
-        knee: [],
-        elbow: [],
-        ankle: [],
-        wrist: [] // 手把位置
-    };
+    let currentPhase = "IDLE";
+    let dataLog = [["Timestamp", "Phase", "Knee", "Hip", "Elbow"]];
 
-    // --- 1. 初始化 ---
+    // --- 1. 系統初始化 ---
     async function initSystem() {
         document.getElementById('overlay').style.display = 'none';
         try {
@@ -131,25 +119,18 @@
             pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
             pose.onResults(onResults);
             await pose.initialize();
-            document.getElementById('status-pill').innerText = "WAITING FOR VIDEO";
+            document.getElementById('status-pill').innerText = "WAITING FOR INPUT";
         } catch (e) { alert("初始化失敗"); }
     }
 
-    // --- 2. 核心分析與繪圖 (OpenCV Style) ---
+    // --- 2. 核心分析與 OpenCV Style 繪圖 ---
     function onResults(results) {
-        // 1. 準備畫布
         if (canvas.width !== video.videoWidth) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
         }
         ctx.save();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // 繪製半透明黑底，讓軌跡更明顯
-        // ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-        // ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // 繪製影片底圖
         ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
         if (results.poseLandmarks) {
@@ -157,96 +138,52 @@
             const w = canvas.width;
             const h = canvas.height;
 
-            // 2. 關鍵節點座標提取 (OpenCV Style: 25, 27, 13, 15)
-            // 使用左側或右側 (根據可見度簡單判斷，這裡預設取右側 偶數為右, 奇數為左。MediaPipe: 11左肩, 12右肩...)
-            // 為了簡化，我們取可見度較高的一側，或者預設左側(側面錄影常用)
-            // 23:左髖, 25:左膝, 27:左踝 | 11:左肩, 13:左肘, 15:左腕
-            
-            // 簡單的側邊自動偵測：比較左肩和右肩的 visibility
+            // 自動偵測視角側邊
             const isLeft = lm[11].visibility > lm[12].visibility;
             const offset = isLeft ? 0 : 1; 
 
+            // 關鍵關節座標
             const ankle = { x: lm[27+offset].x * w, y: lm[27+offset].y * h };
             const knee  = { x: lm[25+offset].x * w, y: lm[25+offset].y * h };
             const hip   = { x: lm[23+offset].x * w, y: lm[23+offset].y * h };
-            const elbow = { x: lm[13+offset].x * w, y: lm[13+offset].y * h };
-            const wrist = { x: lm[15+offset].x * w, y: lm[15+offset].y * h }; // 手把
             const shoulder = { x: lm[11+offset].x * w, y: lm[11+offset].y * h };
+            const elbow = { x: lm[13+offset].x * w, y: lm[13+offset].y * h };
+            const wrist = { x: lm[15+offset].x * w, y: lm[15+offset].y * h };
 
-            // 3. 計算角度與相位判斷
+            // 計算角度
             const kneeAngle = getAngle(hip, knee, ankle);
+            const hipAngle = getAngle(shoulder, hip, knee);
             const elbowAngle = getAngle(shoulder, elbow, wrist);
             
-            // 相位邏輯：膝蓋角度變大 = Drive(推腿)，變小 = Recovery(收腿)
-            // 加入閾值避免抖動
+            // 划船相位判斷 (膝蓋角速度)
             if (kneeAngle > prevKneeAngle + 0.5) {
-                currentPhase = "DRIVE";
+                currentPhase = "DRIVE (拉槳)";
             } else if (kneeAngle < prevKneeAngle - 0.5) {
-                currentPhase = "RECOVERY";
+                currentPhase = "RECOVERY (回槳)";
             }
             prevKneeAngle = kneeAngle;
 
-            // 4. 更新軌跡 Buffer
-            const pointData = { phase: currentPhase, ...knee }; // 存膝蓋
-            updateTrail(trails.knee, knee, currentPhase);
-            updateTrail(trails.elbow, elbow, currentPhase);
-            updateTrail(trails.ankle, ankle, currentPhase); // 踝關節通常不動，但也畫出來確認
-            updateTrail(trails.wrist, wrist, currentPhase); // 手把軌跡
-
-            // 5. 繪製軌跡 (OpenCV Style)
-            drawTrail(trails.knee);
-            drawTrail(trails.elbow);
-            drawTrail(trails.wrist); // 手把很重要
+            // 繪製骨架 (OpenCV 風格粗白線)
+            drawSkeleton(ctx, [shoulder, elbow, wrist], "#FFFFFF", 5);
+            drawSkeleton(ctx, [shoulder, hip, knee, ankle], "#FFFFFF", 5);
             
-            // 6. 繪製當前骨架 (簡化版：只畫線與點)
-            drawSkeleton(ctx, [shoulder, elbow, wrist], "#FFF", 4); // 手臂
-            drawSkeleton(ctx, [shoulder, hip, knee, ankle], "#FFF", 4); // 身體與腿
-            
-            // 繪製關鍵點 (Joints)
-            drawKeypoint(ctx, knee, "#FFD700"); // 金色膝蓋
-            drawKeypoint(ctx, elbow, "#FFD700");
-            drawKeypoint(ctx, ankle, "#888");   // 灰色腳踝
-            drawKeypoint(ctx, wrist, "#00E5FF"); // 藍色手把
+            // 繪製關節點
+            drawKeypoint(ctx, knee, "#00E5FF"); // 膝蓋藍
+            drawKeypoint(ctx, hip, "#00E5FF");
+            drawKeypoint(ctx, elbow, "#00E5FF");
+            drawKeypoint(ctx, wrist, "#FFD700"); // 手部金色
 
-            // 7. 更新 UI
-            updateHUD(currentPhase, kneeAngle, elbowAngle);
+            // 更新 UI
+            updateHUD(currentPhase, kneeAngle, hipAngle, elbowAngle);
+            
+            // 數據記錄
+            const ts = isVideoMode ? video.currentTime.toFixed(2) : new Date().toLocaleTimeString();
+            dataLog.push([ts, currentPhase, kneeAngle, hipAngle, elbowAngle]);
         }
         ctx.restore();
     }
 
-    // --- 3. 軌跡管理系統 ---
-    function updateTrail(trailArray, point, phase) {
-        trailArray.push({ x: point.x, y: point.y, phase: phase });
-        if (trailArray.length > TRAIL_LENGTH) {
-            trailArray.shift(); // 移除最舊的點
-        }
-    }
-
-    function drawTrail(trailArray) {
-        if (trailArray.length < 2) return;
-        
-        // 畫線
-        for (let i = 1; i < trailArray.length; i++) {
-            const p1 = trailArray[i-1];
-            const p2 = trailArray[i];
-            
-            ctx.beginPath();
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            
-            // 顏色邏輯：DRIVE = 紅, RECOVERY = 綠
-            if (p2.phase === "DRIVE") {
-                ctx.strokeStyle = "rgba(255, 61, 0, 0.8)"; // Red Orange
-                ctx.lineWidth = 4;
-            } else {
-                ctx.strokeStyle = "rgba(0, 230, 118, 0.6)"; // Green
-                ctx.lineWidth = 2; // 回槳線條細一點
-            }
-            ctx.stroke();
-        }
-    }
-
-    // --- 4. 繪圖輔助函式 ---
+    // --- 3. 繪圖輔助 ---
     function drawKeypoint(ctx, p, color) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI);
@@ -269,9 +206,7 @@
         ctx.stroke();
     }
 
-    function getAngle(p1, p2, p3) { // p2 是中間點
-        // 使用簡單的向量角度計算
-        // atan2 回傳 -PI 到 PI
+    function getAngle(p1, p2, p3) {
         const a1 = Math.atan2(p1.y - p2.y, p1.x - p2.x);
         const a2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
         let ang = Math.abs((a2 - a1) * 180 / Math.PI);
@@ -279,44 +214,27 @@
         return Math.round(ang);
     }
 
-    function updateHUD(phase, knee, elbow) {
+    function updateHUD(phase, knee, hip, elbow) {
         document.getElementById('val-phase').innerText = phase;
         document.getElementById('val-knee').innerText = knee + "°";
+        document.getElementById('val-hip').innerText = hip + "°";
         document.getElementById('val-elbow').innerText = elbow + "°";
         
         const pill = document.getElementById('status-pill');
-        if (phase === "DRIVE") {
-            pill.style.background = "#FF3D00";
-            pill.innerText = "POWER PHASE (DRIVE)";
-        } else if (phase === "RECOVERY") {
-            pill.style.background = "#00E676";
-            pill.style.color = "#000";
-            pill.innerText = "RECOVERY PHASE";
-        }
+        pill.innerText = phase;
+        pill.style.background = phase.includes("DRIVE") ? "#FF3D00" : "#00E676";
+        pill.style.color = phase.includes("DRIVE") ? "#fff" : "#000";
     }
 
-    function clearTrails() {
-        trails.knee = [];
-        trails.elbow = [];
-        trails.ankle = [];
-        trails.wrist = [];
-    }
-
-    // --- 5. 系統控制 (iOS 穩定版邏輯) ---
+    // --- 4. 系統控制 ---
     document.getElementById('file-input').onchange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
         stopAll();
         isVideoMode = true;
         canvas.classList.remove('mirrored');
-        
-        const url = URL.createObjectURL(file);
-        video.src = url;
-        video.onloadeddata = () => {
-            const p = video.play();
-            if (p) p.then(() => { isProcessing = true; processLoop(); })
-                   .catch(() => alert("請點擊強制執行"));
-        };
+        video.src = URL.createObjectURL(file);
+        video.onloadeddata = () => { video.play(); isProcessing = true; processLoop(); };
     };
 
     function startCamera() {
@@ -327,15 +245,11 @@
             .then(s => {
                 video.srcObject = s;
                 video.onloadedmetadata = () => { video.play(); isProcessing = true; processLoop(); };
-            }).catch(e => alert("相機權限失敗"));
+            }).catch(e => alert("相機啟動失敗"));
     }
 
     function forceRender() {
-        if (video.src || video.srcObject) {
-            video.play();
-            isProcessing = true;
-            processLoop();
-        }
+        if (video.src || video.srcObject) { video.play(); isProcessing = true; processLoop(); }
     }
 
     function processLoop() {
@@ -346,11 +260,18 @@
 
     function stopAll() {
         isProcessing = false;
-        clearTrails();
         if (animationId) cancelAnimationFrame(animationId);
         video.pause();
         if (video.srcObject) { video.srcObject.getTracks().forEach(t=>t.stop()); video.srcObject=null;}
         video.src="";
+    }
+
+    function exportCSV() {
+        const csv = dataLog.map(r => r.join(",")).join("\n");
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+        a.download = `rowing_analysis_${Date.now()}.csv`;
+        a.click();
     }
 </script>
 </body>
